@@ -96,15 +96,34 @@ export default function Patients() {
   const [testResult, setTestResult] = useState(null);
   const [copiedCode, setCopiedCode] = useState(false);
 
+  // Occupied Bed IDs and Device IDs currently assigned to active admitted patients
+  const occupiedBedIds = useMemo(() => {
+    return (patients || [])
+      .filter((p) => p.status === "Admitted" && p.assignedBedId)
+      .map((p) => p.assignedBedId);
+  }, [patients]);
+
+  const occupiedDeviceIds = useMemo(() => {
+    return (patients || [])
+      .filter((p) => p.status === "Admitted" && p.deviceId)
+      .map((p) => p.deviceId);
+  }, [patients]);
+
+  // Available beds for admission (only unoccupied beds)
+  const availableBeds = useMemo(() => {
+    const allBedIds = beds && beds.length > 0 ? beds.map((b) => b.bedId) : ["NICU-01", "NICU-02", "NICU-03", "NICU-04", "NICU-05", "NICU-06"];
+    return allBedIds.filter((bId) => !occupiedBedIds.includes(bId));
+  }, [beds, occupiedBedIds]);
+
+  // Available devices (only unassigned or spare devices)
+  const availableDevices = useMemo(() => {
+    return (devices || []).filter((d) => !occupiedDeviceIds.includes(d.deviceId));
+  }, [devices, occupiedDeviceIds]);
+
   // Doctors list for dropdowns
   const doctorsList = useMemo(() => {
     return staffList.filter((s) => s.role === "Doctor");
   }, [staffList]);
-
-  // Available beds for admission
-  const availableBeds = useMemo(() => {
-    return ["NICU-01", "NICU-02", "NICU-03", "NICU-04", "NICU-05", "NICU-06"];
-  }, []);
 
   // Compute Statistics
   const totalCount = patients.length;
@@ -276,18 +295,20 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Beginner Device Connection Guide Button */}
-          <button
-            onClick={() => setIsDeviceGuideOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all border shadow-xs bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-300/60 dark:border-indigo-500/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/50"
-          >
-            <Cpu size={16} className="text-indigo-600 dark:text-indigo-400" />
-            <span>Connect ESP32 Device</span>
-          </button>
-
           {/* Admit New Patient Button */}
           <button
-            onClick={() => setIsAdmitModalOpen(true)}
+            onClick={() => {
+              if (availableBeds.length === 0) {
+                alert("All 6 NICU Beds are currently occupied. Please discharge a patient to release a bed slot.");
+                return;
+              }
+              setAdmitForm((prev) => ({
+                ...prev,
+                assignedBedId: availableBeds[0] || "NICU-01",
+                deviceId: availableDevices[0]?.deviceId || "",
+              }));
+              setIsAdmitModalOpen(true);
+            }}
             className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm text-white bg-teal-600 hover:bg-teal-700 active:scale-95"
           >
             <Plus size={16} />
@@ -699,22 +720,15 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Blood Group
+                      Blood Group (Typeable)
                     </label>
-                    <select
+                    <input
+                      type="text"
+                      placeholder="e.g. O+, A-, B+, Rh-null"
                       value={admitForm.bloodGroup}
                       onChange={(e) => setAdmitForm({ ...admitForm, bloodGroup: e.target.value })}
                       className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white"
-                    >
-                      <option value="O+">O+</option>
-                      <option value="O-">O-</option>
-                      <option value="A+">A+</option>
-                      <option value="A-">A-</option>
-                      <option value="B+">B+</option>
-                      <option value="B-">B-</option>
-                      <option value="AB+">AB+</option>
-                      <option value="AB-">AB-</option>
-                    </select>
+                    />
                   </div>
                 </div>
               </div>
@@ -824,10 +838,10 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
                       onChange={(e) => setAdmitForm({ ...admitForm, deviceId: e.target.value })}
                       className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-mono"
                     >
-                      <option value="">-- Connect Later --</option>
-                      {devices.map((d) => (
+                      <option value="">-- Connect Later / Standby --</option>
+                      {availableDevices.map((d) => (
                         <option key={d.deviceId} value={d.deviceId}>
-                          {d.deviceId} ({d.status})
+                          {d.deviceId} ({d.status || "Available"})
                         </option>
                       ))}
                     </select>
@@ -1081,8 +1095,8 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
         </div>
       )}
 
-      {/* ── ESP32 Beginner Device Connection Wizard Modal ── */}
-      {isDeviceGuideOpen && (
+      {/* ── ESP32 Beginner Device Connection Wizard Modal (Moved to Settings page) ── */}
+      {false && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
             {/* Modal Header */}

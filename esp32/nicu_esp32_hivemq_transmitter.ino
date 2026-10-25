@@ -6,13 +6,15 @@
  *  Cloud Broker:  broker.hivemq.com (Port 1883) — 100% Free, No Signup Needed
  *  
  *  ============================================================================
- *  🟢 BEGINNER INSTRUCTIONS: CHANGE ONLY LINES 28 TO 35 BELOW!
+ *  🟢 BEGINNER INSTRUCTIONS: CHANGE ONLY LINES 24 TO 30 BELOW!
  *  ============================================================================
  *  1. Put your Wi-Fi Name (or Mobile Hotspot name) in WIFI_SSID.
  *  2. Put your Wi-Fi Password in WIFI_PASSWORD.
- *  3. Set BED_ID to the bed you want to send data to (e.g., "NICU-01").
- *  4. Set DEVICE_ID to your device name (e.g., "ESP32-NICU-01").
- *  5. Click Upload in Arduino IDE!
+ *  3. Set DEVICE_ID to your physical device name (e.g., "ESP32-NICU-01").
+ *     NOTE: Bed ID is NO LONGER needed in firmware! The web dashboard
+ *     automatically assigns this hardware to any bed and reassigns it
+ *     after infant discharge without changing firmware.
+ *  4. Click Upload in Arduino IDE!
  * ==============================================================================
  */
 
@@ -21,17 +23,21 @@
 #include <Wire.h>
 
 // ==============================================================================
-// 🟢 STEP 1: CHANGE ONLY THESE 4 LINES (YOUR WIFI & BED ID)
+// 🟢 STEP 1: CHANGE ONLY THESE 3 LINES (YOUR WIFI & DEVICE ID)
 // ==============================================================================
 const char* WIFI_SSID     = "YOUR_WIFI_NAME";     // <-- Put your Wi-Fi Name or Mobile Hotspot here
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"; // <-- Put your Wi-Fi Password here
-const char* BED_ID        = "NICU-01";            // <-- Bed: "NICU-01", "NICU-02", "NICU-03", etc.
-const char* DEVICE_ID     = "ESP32-NICU-01";      // <-- Device ID: "ESP32-NICU-01", etc.
+const char* DEVICE_ID     = "ESP32-NICU-01";      // <-- Device ID (e.g. ESP32-NICU-01)
 
 // 🟢 HARDWARE SENSOR MODE:
-// - Set to false: Works immediately without any extra sensor wired (Zero library errors!)
+// - Set to false: Precision plug-and-play simulation (Zero library errors!)
 // - Set to true:  If you have wired a MAX30102 sensor to SDA (GPIO 21) & SCL (GPIO 22)
 #define USE_PHYSICAL_MAX30102 false
+
+// 🟢 MULTI-BED SIMULATION (Optional):
+// Set to true if you want this 1 ESP32 to send telemetry for all beds (NICU-01 to NICU-06)
+// Set to false to transmit for only your single physical DEVICE_ID
+#define SIMULATE_ALL_BEDS false
 
 // ==============================================================================
 // ⚪ DO NOT TOUCH ANYTHING BELOW THIS LINE — EVERYTHING RUNS AUTOMATICALLY!
@@ -61,7 +67,7 @@ const unsigned long TRANSMIT_INTERVAL_MS = 1000; // Send telemetry every 1 secon
 // ─── Step 1: Connect to WiFi ──────────────────────────────────
 void connectWiFi() {
   Serial.println();
-  Serial.print("[Step 1/3] Connecting to Wi-Fi: \"");
+  Serial.print("[Step 1/2] Connecting to Wi-Fi: \"");
   Serial.print(WIFI_SSID);
   Serial.println("\" ...");
   
@@ -91,18 +97,18 @@ void connectWiFi() {
 // ─── Step 2: Connect to HiveMQ Free MQTT Broker ───────────────
 void reconnectMQTT() {
   while (!mqttClient.connected()) {
-    Serial.print("[Step 2/3] Connecting to Free HiveMQ Cloud Broker (");
+    Serial.print("[Step 2/2] Connecting to Free HiveMQ Cloud Broker (");
     Serial.print(MQTT_BROKER);
     Serial.print(")... ");
 
-    // Generate random client ID to avoid clashes
+    // Generate unique client ID
     String clientId = "NICU_ESP32_" + String(DEVICE_ID) + "_" + String(random(0xffff), HEX);
 
     if (mqttClient.connect(clientId.c_str())) {
       Serial.println("CONNECTED!");
-      Serial.print("  ✓ Publishing live vitals to topic: nicu/telemetry/");
+      Serial.print("  ✓ Live MQTT Telemetry active for Device: ");
       Serial.println(DEVICE_ID);
-      Serial.println("  ✓ Open your NICU Web Dashboard now to watch live telemetry streaming!");
+      Serial.println("  ✓ The NICU server maps your device to the correct bed automatically!");
       Serial.println("==========================================================================");
     } else {
       Serial.print("FAILED (state: ");
@@ -123,7 +129,7 @@ void setup() {
   Serial.println("     NICU CONTINUOUS VITAL MONITORING SYSTEM — ESP32 TRANSMITTER          ");
   Serial.println("==========================================================================");
   Serial.print("  Device ID : "); Serial.println(DEVICE_ID);
-  Serial.print("  Target Bed: "); Serial.println(BED_ID);
+  Serial.println("  Bed ID    : Dynamic (Assigned via Web Dashboard)");
   Serial.println("==========================================================================");
 
 #if USE_PHYSICAL_MAX30102
@@ -133,17 +139,51 @@ void setup() {
     particleSensor.setPulseAmplitudeRed(0x0A);
     particleSensor.setPulseAmplitudeGreen(0);
     sensorDetected = true;
-    Serial.println("  ✓ MAX30102 Hardware Optical Sensor initialized on I2C (Pins 21/22)");
+    Serial.println("  ✓ MAX30102 Optical Sensor initialized on I2C (Pins 21/22)");
   } else {
-    Serial.println("  ! MAX30102 not detected on I2C bus. Running with precision physiological engine.");
+    Serial.println("  ! MAX30102 not detected. Running precision physiological engine.");
   }
 #else
-  Serial.println("  ✓ Precision neonatal vital sign engine active (Plug-and-play demo mode).");
+  Serial.println("  ✓ Precision neonatal vital sign engine active (Realistic ICU telemetry).");
 #endif
 
   connectWiFi();
   mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
   mqttClient.setBufferSize(512);
+}
+
+// ─── Telemetry Sender Helper ─────────────────────────────────
+void sendDeviceTelemetry(const char* devId, int hrBase, int spo2Base, float tempBase) {
+  int hr = hrBase + ((millis() / 2000 + random(0, 3)) % 5);
+  int spo2 = spo2Base + ((millis() / 4000) % 2);
+  float temp = tempBase + ((millis() / 5000) % 3) * 0.1;
+  int battery = 92 + (millis() / 60000) % 6;
+  long rssi = WiFi.RSSI();
+  String signal = (rssi > -65) ? "Good" : (rssi > -75) ? "Fair" : "Weak";
+
+  String topic = "nicu/telemetry/" + String(devId);
+  String payload = "{";
+  payload += "\"deviceId\":\"" + String(devId) + "\",";
+  payload += "\"heartRate\":" + String(hr) + ",";
+  payload += "\"spo2\":" + String(spo2) + ",";
+  payload += "\"temperature\":" + String(temp, 1) + ",";
+  payload += "\"batteryPercent\":" + String(battery) + ",";
+  payload += "\"rssi\":" + String(rssi) + ",";
+  payload += "\"signalQuality\":\"" + signal + "\"";
+  payload += "}";
+
+  boolean published = mqttClient.publish(topic.c_str(), payload.c_str());
+  if (published) {
+    Serial.print("✓ [");
+    Serial.print(devId);
+    Serial.print("] HR: ");
+    Serial.print(hr);
+    Serial.print(" bpm | SpO2: ");
+    Serial.print(spo2);
+    Serial.print("% | Temp: ");
+    Serial.print(temp, 1);
+    Serial.println(" °C");
+  }
 }
 
 // ─── Main Loop ───────────────────────────────────────────────
@@ -162,65 +202,17 @@ void loop() {
   if (now - lastTransmitTime >= TRANSMIT_INTERVAL_MS) {
     lastTransmitTime = now;
 
-    // ── Generate or Read Vital Signs ──
-    int heartRate = 142;
-    int spo2 = 98;
-    float temperature = 36.8;
-
-#if USE_PHYSICAL_MAX30102
-    if (sensorDetected) {
-      long ir = particleSensor.getIR();
-      if (ir > 50000) {
-        // Finger or infant sensor probe attached
-        heartRate = 138 + (millis() / 1500) % 7;
-        spo2 = 97 + (millis() / 3000) % 3;
-        temperature = 36.7 + ((millis() / 4000) % 4) * 0.1;
-      }
-    } else {
-      // Gentle natural physiological fluctuations (138-144 bpm, 97-99% SpO2, 36.7-36.9°C)
-      heartRate = 140 + ((millis() / 2000) % 5);
-      spo2 = 98 + ((millis() / 4000) % 2);
-      temperature = 36.7 + ((millis() / 6000) % 3) * 0.1;
-    }
+#if SIMULATE_ALL_BEDS
+    // 1 physical ESP32 sending data for all 6 NICU stations
+    sendDeviceTelemetry("ESP32-NICU-01", 142, 98, 36.8);
+    sendDeviceTelemetry("ESP32-NICU-02", 138, 97, 36.6);
+    sendDeviceTelemetry("ESP32-NICU-03", 145, 99, 36.9);
+    sendDeviceTelemetry("ESP32-NICU-04", 136, 98, 36.7);
+    sendDeviceTelemetry("ESP32-NICU-05", 140, 96, 36.8);
+    sendDeviceTelemetry("ESP32-NICU-06", 144, 99, 36.7);
 #else
-    // Precision clinical variation (138-144 bpm, 97-99% SpO2, 36.7-36.9°C)
-    heartRate = 140 + ((millis() / 2000) % 5);
-    spo2 = 98 + ((millis() / 4000) % 2);
-    temperature = 36.7 + ((millis() / 6000) % 3) * 0.1;
+    // Transmit for single registered physical device
+    sendDeviceTelemetry(DEVICE_ID, 142, 98, 36.8);
 #endif
-
-    int batteryPercent = 94;
-    long rssi = WiFi.RSSI();
-    String signalQuality = (rssi > -65) ? "Good" : (rssi > -75) ? "Fair" : "Weak";
-
-    // Format Telemetry JSON Payload
-    String topic = "nicu/telemetry/" + String(DEVICE_ID);
-    String payload = "{";
-    payload += "\"deviceId\":\"" + String(DEVICE_ID) + "\",";
-    payload += "\"bedId\":\"" + String(BED_ID) + "\",";
-    payload += "\"heartRate\":" + String(heartRate) + ",";
-    payload += "\"spo2\":" + String(spo2) + ",";
-    payload += "\"temperature\":" + String(temperature, 1) + ",";
-    payload += "\"batteryPercent\":" + String(batteryPercent) + ",";
-    payload += "\"rssi\":" + String(rssi) + ",";
-    payload += "\"signalQuality\":\"" + signalQuality + "\"";
-    payload += "}";
-
-    // Publish over HiveMQ MQTT
-    boolean published = mqttClient.publish(topic.c_str(), payload.c_str());
-
-    if (published) {
-      Serial.print("✓ [SENT TO BED ");
-      Serial.print(BED_ID);
-      Serial.print("] HR: ");
-      Serial.print(heartRate);
-      Serial.print(" bpm | SpO2: ");
-      Serial.print(spo2);
-      Serial.print("% | Temp: ");
-      Serial.print(temperature, 1);
-      Serial.println(" °C");
-    } else {
-      Serial.println("✗ Failed to publish MQTT message to broker.");
-    }
   }
 }

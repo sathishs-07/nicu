@@ -37,7 +37,7 @@ import {
 import { useApp } from "../context/AppContext";
 
 export default function Analytics() {
-  const { weeklyAnalytics, bedEfficiency, staffList, totalBeds } = useApp();
+  const { weeklyAnalytics, bedEfficiency, staffList, totalBeds, alertLog = [] } = useApp();
 
   const [dateFilter, setDateFilter] = useState("7d"); // "today" | "7d" | "30d"
   const [activeTab, setActiveTab] = useState("weekly"); // "weekly" | "staff" | "efficiency" | "report"
@@ -57,6 +57,25 @@ export default function Analytics() {
   const averageUptime = +(
     bedEfficiency.reduce((acc, b) => acc + b.uptimePercent, 0) / bedEfficiency.length
   ).toFixed(2);
+
+  // Live Alert Statistics synchronized directly with alertLog
+  const totalAlertsCount = alertLog.length;
+  const hrAlertsCount = alertLog.filter(
+    (a) => a.parameter?.includes("HR") || a.alertType?.includes("Tachycardia") || a.alertType?.includes("Bradycardia")
+  ).length;
+  const spo2AlertsCount = alertLog.filter(
+    (a) => a.parameter?.includes("SpO₂") || a.alertType?.includes("Desaturation") || a.alertType?.includes("Hypoxemia")
+  ).length;
+  const tempAlertsCount = alertLog.filter(
+    (a) => a.parameter?.includes("Temp") || a.alertType?.includes("Hypothermia") || a.alertType?.includes("Hyperthermia")
+  ).length;
+
+  let mostCommonEventType = "HR Tachycardia";
+  if (spo2AlertsCount > hrAlertsCount && spo2AlertsCount > tempAlertsCount) {
+    mostCommonEventType = "SpO₂ Desaturation";
+  } else if (tempAlertsCount > hrAlertsCount && tempAlertsCount > spo2AlertsCount) {
+    mostCommonEventType = "Thermal Instability";
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -164,30 +183,30 @@ export default function Analytics() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="clinical-card p-4">
               <div className="text-[11px] font-semibold text-slate-400 uppercase">
-                7-Day Total Alerts
+                Total Documented Alerts
               </div>
               <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
-                98 events
+                {totalAlertsCount} events
               </div>
               <div className="text-[10.5px] text-teal-600 font-medium">
-                Avg 14.0 alarms/day
+                Live Synced with Alert Log
               </div>
             </div>
             <div className="clinical-card p-4">
               <div className="text-[11px] font-semibold text-slate-400 uppercase">
-                Most Common Event
+                Primary Alarm Profile
               </div>
               <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
-                HR Tachycardia
+                {mostCommonEventType}
               </div>
-              <div className="text-[10.5px] text-slate-500">38% of total volume</div>
+              <div className="text-[10.5px] text-slate-500">{hrAlertsCount} cardiac triggers recorded</div>
             </div>
             <div className="clinical-card p-4">
               <div className="text-[11px] font-semibold text-slate-400 uppercase">
                 Desaturation Events
               </div>
               <div className="text-2xl font-bold font-mono text-cyan-600 dark:text-cyan-400 mt-1">
-                29 episodes
+                {spo2AlertsCount} episodes
               </div>
               <div className="text-[10.5px] text-slate-500">SpO₂ &lt; 90% observed</div>
             </div>
@@ -555,9 +574,9 @@ export default function Analytics() {
                 </div>
                 <div className="text-xs text-slate-700 dark:text-slate-300 space-y-1">
                   <div>Unit: <strong>NICU Level III (Ward 3B)</strong></div>
-                  <div>Monitored Census: <strong>6 Neonatal Beds</strong></div>
+                  <div>Monitored Census: <strong>{totalBeds} Neonatal Bed Slots</strong></div>
                   <div>Total Ingested Data Points: <strong>518,400 readings</strong></div>
-                  <div>Total Alarm Events: <strong>98 events (0 overdue)</strong></div>
+                  <div>Total Alarm Events: <strong>{totalAlertsCount} documented events</strong></div>
                 </div>
                 <div className="flex items-center gap-2 pt-2">
                   <button

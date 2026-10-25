@@ -118,43 +118,21 @@ export default function Header() {
       {/* ── Left: Unit Branding & Name ── */}
       <div className="flex items-center gap-3">
         <Link to="/" className="flex items-center gap-2.5 text-decoration-none">
-          <div className="w-8 h-8 rounded-lg bg-teal-600 flex items-center justify-center text-white font-bold text-sm shadow-sm">
-            CS
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center text-white font-extrabold text-sm shadow-md">
+            NC
           </div>
           <div className="hidden sm:block">
-            <div className="text-[14px] font-bold tracking-tight text-slate-800 dark:text-slate-100 leading-tight">
-              NICU Continuous Vital Monitoring System
+            <div className="text-[14px] font-bold tracking-tight text-slate-100 leading-tight flex items-center gap-1.5">
+              <span>NeoCare</span>
+              <span className="text-[11px] font-mono text-cyan-400 font-semibold px-1.5 py-0.2 rounded bg-cyan-950 border border-cyan-800">
+                NICU
+              </span>
             </div>
-            <div className="text-[11px] font-mono text-teal-600 dark:text-teal-400 font-medium">
-              Neonatal Intensive Care · Level III Unit
+            <div className="text-[11px] font-mono text-cyan-400 font-medium">
+              Continuous Vital Monitoring Command Center
             </div>
           </div>
         </Link>
-      </div>
-
-      {/* ── Center: Search Box for Baby ID, Mother Name, Bed Number ── */}
-      <div className="flex-1 max-w-md mx-4 hidden md:block">
-        <div className="relative">
-          <Search
-            size={16}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-          />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search baby ID (DEMO-001), mother's name, or bed (NICU-01)..."
-            className="w-full pl-9 pr-4 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 transition-all font-mono"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs px-1"
-            >
-              ×
-            </button>
-          )}
-        </div>
       </div>
 
       {/* ── Right Controls: Clock, Simulator, Alerts, Theme, Profile ── */}
@@ -263,18 +241,6 @@ export default function Header() {
           )}
         </div>
 
-        {/* Dark/Light Theme Toggle */}
-        <button
-          onClick={toggleTheme}
-          className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-          title={theme === "light" ? "Switch to Dark Mode" : "Switch to Light Mode"}
-        >
-          {theme === "light" ? (
-            <Moon size={17} className="text-slate-600" />
-          ) : (
-            <Sun size={17} className="text-amber-400" />
-          )}
-        </button>
 
         {/* Signed-in Staff Profile with Switcher */}
         <div className="relative" ref={profileRef}>

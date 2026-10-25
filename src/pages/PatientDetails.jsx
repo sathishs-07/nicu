@@ -43,6 +43,7 @@ import {
   CartesianGrid,
   ReferenceLine,
 } from "recharts";
+import MedicalPPGWaveform from "../components/MedicalPPGWaveform";
 import { useApp } from "../context/AppContext";
 import { api } from "../services/api";
 
@@ -207,10 +208,10 @@ export default function PatientDetails() {
           </button>
           <button
             onClick={() => window.print()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium shadow-xs transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow-md transition-colors"
           >
             <FileText size={14} />
-            <span>Print Report</span>
+            <span>Export Clinical PDF / Print</span>
           </button>
           <button
             onClick={async () => {
@@ -389,6 +390,39 @@ export default function PatientDetails() {
             </span>
           </div>
         </div>
+      </div>
+
+      {/* ── Real-Time Arterial PPG Pulse Waveform (Exact match to Medical Monitor Screen) ── */}
+      <div className="clinical-card p-5 border border-cyan-900/50 bg-[#070e24] shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 pb-2 border-b border-slate-800">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping inline-block" />
+            <h2 className="text-sm font-bold text-white font-mono tracking-wide flex items-center gap-2">
+              <span>PLETH / REAL-TIME ARTERIAL PULSE WAVEFORM</span>
+              <span className="text-[10px] font-normal text-cyan-300 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-700/50">
+                MAX30102 Optical Sensor · Continuous Stream
+              </span>
+            </h2>
+          </div>
+          <div className="flex items-center gap-3 text-xs font-mono text-cyan-300">
+            <span>HR: <strong className="text-white text-sm">{isLiveConnected ? bed?.hr : "--"}</strong> bpm</span>
+            <span>SpO₂: <strong className="text-cyan-400 text-sm">{isLiveConnected ? `${bed?.spo2}%` : "--"}</strong></span>
+            <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${isLiveConnected ? "bg-emerald-950 text-emerald-400 border border-emerald-700" : "bg-rose-950 text-rose-400 border border-rose-800"}`}>
+              {isLiveConnected ? "LIVE TELEMETRY" : "SENSOR OFFLINE"}
+            </span>
+          </div>
+        </div>
+
+        <MedicalPPGWaveform
+          heartRate={bed?.hr || 140}
+          spo2={bed?.spo2 || 98}
+          isLive={isLiveConnected}
+          height={140}
+          showControls={true}
+          strokeColor="#ffffff"
+          fillColor="rgba(255, 255, 255, 0.95)"
+          backgroundColor="#0a1028"
+        />
       </div>
 
       {/* ── Continuous Live Physiological Waveform Trend Chart ── */}
@@ -603,13 +637,13 @@ export default function PatientDetails() {
             </div>
 
             <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
-              <div className="text-slate-400 text-[11px]">Li-Po Battery Level</div>
+              <div className="text-slate-400 text-[11px]">Device Battery Backup</div>
               <div className="font-mono font-bold text-slate-800 dark:text-slate-200 mt-1 flex items-center gap-1.5">
                 <Battery size={16} className="text-teal-600" />
                 {bed.batteryPercent}%
               </div>
               <div className="text-[10px] text-slate-400 mt-0.5">
-                Approx. 14 hours remaining
+                Approx. 14 hours backup runtime
               </div>
             </div>
 

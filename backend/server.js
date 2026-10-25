@@ -92,11 +92,66 @@ app.get("/api/health", async (req, res) => {
 });
 
 // ─── Beds Endpoints ──────────────────────────────────────────
-// List all 6 beds
+// List all 6 beds with live 15s heartbeat freshness
 app.get("/api/beds", async (req, res) => {
   try {
     const beds = await Bed.find().sort({ bedId: 1 });
-    res.json(beds);
+    const now = Date.now();
+    const processedBeds = beds.map((b) => {
+      const bedObj = b.toObject();
+      const isFresh = bedObj.lastHeartbeatMs > 0 && now - bedObj.lastHeartbeatMs <= 15000;
+      if (!isFresh) {
+        bedObj.connectionState = "DISCONNECTED";
+        if (bedObj.status === "Monitoring") {
+          bedObj.status = "Disconnected";
+        }
+      } else {
+        bedObj.connectionState = "CONNECTED";
+      }
+      return bedObj;
+    });
+    res.json(processedBeds);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reset / Clean all dummy & discharged patient data from beds
+app.post("/api/beds/clean-dummies", async (req, res) => {
+  try {
+    const activePatients = await Patient.find({ status: "Admitted" });
+    const activeBedIds = new Set(activePatients.map((p) => p.assignedBedId).filter(Boolean));
+
+    const beds = await Bed.find();
+    for (const b of beds) {
+      if (!activeBedIds.has(b.bedId)) {
+        await Bed.updateOne(
+          { bedId: b.bedId },
+          {
+            $set: {
+              patientId: null,
+              babyName: "",
+              motherName: "",
+              gender: "",
+              gestationalAge: "",
+              birthWeight: "",
+              diagnosis: "",
+              status: "Standby",
+              connectionState: "DISCONNECTED",
+              deviceId: null,
+              hr: null,
+              spo2: null,
+              temperature: null,
+              activeAlerts: [],
+              lastHeartbeatMs: 0,
+              lastUpdate: "Standby - Ready for Admission",
+            },
+          }
+        );
+      }
+    }
+    const updated = await Bed.find().sort({ bedId: 1 });
+    res.json({ success: true, message: "Cleared all dummy/discharged bed assignments", beds: updated });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -346,6 +401,25 @@ app.post("/api/patients", async (req, res) => {
       return res.status(400).json({ error: "Baby Name and Mother Name are required" });
     }
 
+    // Exclusivity Check: No two patients can occupy the same bed or sensor
+    if (assignedBedId) {
+      const activeInBed = await Patient.findOne({ assignedBedId, status: "Admitted" });
+      if (activeInBed) {
+        return res.status(400).json({
+          error: `Bed ${assignedBedId} is already occupied by ${activeInBed.babyName}. Please discharge the existing patient first.`,
+        });
+      }
+    }
+
+    if (deviceId) {
+      const activeWithDev = await Patient.findOne({ deviceId, status: "Admitted" });
+      if (activeWithDev) {
+        return res.status(400).json({
+          error: `Sensor ${deviceId} is currently assigned to ${activeWithDev.babyName}. Please unassign or discharge before binding.`,
+        });
+      }
+    }
+
     const count = await Patient.countDocuments();
     const patientId =
       req.body.patientId || `PT-${new Date().getFullYear()}-${String(count + 1).padStart(3, "0")}`;
@@ -518,10 +592,22 @@ app.post("/api/patients/:id/discharge", async (req, res) => {
         { bedId: previousBedId },
         {
           $set: {
+            patientId: null,
+            babyName: "",
+            motherName: "",
+            gender: "",
+            gestationalAge: "",
+            birthWeight: "",
+            diagnosis: "",
             status: "Standby",
             connectionState: "DISCONNECTED",
             deviceId: null,
+            deviceMac: "",
+            hr: null,
+            spo2: null,
+            temperature: null,
             activeAlerts: [],
+            lastHeartbeatMs: 0,
             lastUpdate: "Discharged - Bed Available",
           },
         }
@@ -1030,8 +1116,8 @@ async function processTelemetryIngestion(payload) {
     }
   }
 
-  // 2. Resolve Assigned Bed
-  const targetBedId = bedId || device?.assignedBedId;
+  // 2. Resolve Assigned Bed (Database mapping takes precedence over hardcoded firmware)
+  const targetBedId = device?.assignedBedId || bedId;
   let bed = null;
   if (targetBedId) {
     bed = await Bed.findOne({ bedId: targetBedId });

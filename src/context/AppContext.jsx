@@ -43,57 +43,78 @@ export const can = {
 };
 
 export function AppProvider({ children }) {
-  // Theme state: "light" (clinical light default) or "dark"
-  const [theme, setTheme] = useState(() => {
-    return localStorage.getItem("nicu_theme") || "light";
+  // Theme state: permanently dark clinical ICU theme
+  const theme = "dark";
+
+  // Dynamic Role-Based Access Control (RBAC) Permissions matrix
+  const [rolePermissions, setRolePermissions] = useState(() => {
+    const saved = localStorage.getItem("nicu_role_permissions");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        // fallback
+      }
+    }
+    return {
+      Doctor: {
+        dashboard: "edit",
+        patients: "edit",
+        doctors: "view",
+        alerts: "edit",
+        analytics: "view",
+        settings: "view",
+      },
+      Nurse: {
+        dashboard: "view",
+        patients: "view",
+        doctors: "view",
+        alerts: "edit",
+        analytics: "view",
+        settings: "restricted",
+      },
+    };
   });
 
-  // Current logged in user (null = not logged in)
-  const [currentUser, setCurrentUser] = useState(null);
+  const updateRolePermission = useCallback((role, moduleKey, level) => {
+    setRolePermissions((prev) => {
+      const next = {
+        ...prev,
+        [role]: {
+          ...(prev[role] || {}),
+          [moduleKey]: level,
+        },
+      };
+      localStorage.setItem("nicu_role_permissions", JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
-  // Clinical thresholds
-  const [thresholds, setThresholds] = useState({ ...DEFAULT_THRESHOLDS });
+  // Permission access checker
+  const canAccess = useCallback(
+    (moduleKey, requiredLevel = "view") => {
+      if (!currentUser) return false;
+      if (currentUser.role === ROLES.ADMIN) return true;
 
-  // Beds — starts empty, populated from MongoDB
-  const [beds, setBeds] = useState([]);
+      const userRole = currentUser.role;
+      const perm = rolePermissions[userRole]?.[moduleKey] || "view";
 
-  // Patients registry (active and discharged neonates)
-  const [patients, setPatients] = useState([]);
+      if (perm === "restricted") return false;
+      if (requiredLevel === "edit" && perm !== "edit") return false;
+      return true;
+    },
+    [currentUser, rolePermissions]
+  );
 
-  // Staff state — populated from MongoDB
-  const [staffList, setStaffList] = useState([]);
-
-  // ESP32 Devices registry
-  const [devices, setDevices] = useState([]);
-
-  // Alert log state — only real alerts from ESP32 telemetry
-  const [alertLog, setAlertLog] = useState([]);
-
-  // Audit trail state
-  const [auditLogs, setAuditLogs] = useState([]);
-
-  // Search filter
-  const [searchQuery, setSearchQuery] = useState("");
-
-  // Waveform buffers: last 60 real readings per bed (bedId → [{time, hr, spo2, temp}])
-  const [waveforms, setWaveforms] = useState({});
-
-  // Loading state for initial fetch
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Sync theme to DOM
+  // Sync permanent dark theme to DOM
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    if (theme === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-    localStorage.setItem("nicu_theme", theme);
-  }, [theme]);
+    document.documentElement.setAttribute("data-theme", "dark");
+    document.documentElement.classList.add("dark");
+    localStorage.setItem("nicu_theme", "dark");
+  }, []);
 
   const toggleTheme = useCallback(() => {
-    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+    // Theme locked to dark for clinical standard
   }, []);
 
   // ─── Logout ────────────────────────────────────────────────
@@ -605,6 +626,9 @@ export function AppProvider({ children }) {
         isLoading,
         // Role permissions
         can,
+        rolePermissions,
+        updateRolePermission,
+        canAccess,
         // Patients
         patients,
         setPatients,

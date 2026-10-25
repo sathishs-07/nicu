@@ -56,9 +56,12 @@ export default function Settings() {
     setIsSimulating,
     dataSourceMode,
     setDataSourceMode,
+    rolePermissions,
+    updateRolePermission,
   } = useApp();
 
   const [activeSubTab, setActiveSubTab] = useState("alert-rules"); // "beds" | "devices" | "alert-rules" | "users" | "retention" | "security"
+  const [showConnectGuide, setShowConnectGuide] = useState(false);
   const [thresholdForm, setThresholdForm] = useState({ ...thresholds });
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [activeFirmwareTab, setActiveFirmwareTab] = useState("payload"); // "payload" | "arduino" | "wiring"
@@ -499,6 +502,14 @@ export default function Settings() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
+                  onClick={() => setShowConnectGuide(!showConnectGuide)}
+                  className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Cpu size={14} />
+                  <span>{showConnectGuide ? "Hide Connect Guide" : "ESP32 Quick Connect Guide"}</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => setShowAddDeviceModal(true)}
                   className="px-3.5 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
                 >
@@ -507,6 +518,44 @@ export default function Settings() {
                 </button>
               </div>
             </div>
+
+            {/* Beginner ESP32 Connection Guide Embedded in Settings */}
+            {showConnectGuide && (
+              <div className="p-5 bg-gradient-to-br from-indigo-950/40 to-slate-900 border-b border-indigo-800/60 text-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="text-cyan-400" size={18} />
+                    <h4 className="font-bold text-sm text-white">
+                      ESP32 Device Quick Connect Guide (Zero Confusion)
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-mono bg-cyan-950 text-cyan-300 border border-cyan-800 px-2 py-0.5 rounded">
+                    Free HiveMQ MQTT · broker.hivemq.com:1883
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-slate-300">
+                  <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1.5">
+                    <span className="font-bold text-cyan-400">1. Install PubSubClient</span>
+                    <p className="text-[11px] text-slate-400">
+                      In Arduino IDE, go to <strong>Tools → Manage Libraries</strong> and install <code>PubSubClient</code> by Nick O'Leary.
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1.5">
+                    <span className="font-bold text-cyan-400">2. Configure Wi-Fi Only</span>
+                    <p className="text-[11px] text-slate-400">
+                      Open <code>esp32/nicu_esp32_hivemq_transmitter.ino</code>. Enter your Wi-Fi name &amp; password. Bed ID is assigned dynamically in the dashboard!
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800 space-y-1.5">
+                    <span className="font-bold text-cyan-400">3. Connect &amp; Stream</span>
+                    <p className="text-[11px] text-slate-400">
+                      Upload to ESP32. It publishes to <code>nicu/telemetry/&lt;DEVICE_ID&gt;</code>. Status turns green <strong>ONLINE</strong> immediately!
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Auto-Discovery Banner if any unassigned device appeared */}
             {devices.some((d) => d.autoDiscovered && !d.assignedBedId) && (
@@ -1066,57 +1115,95 @@ void loop() {
       {/* ── Sub-Section 4: Users & Permissions ── */}
       {activeSubTab === "users" && (
         <div className="clinical-card p-5 space-y-4">
-          <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              Role-Based Access Control (RBAC) Matrix
-            </h3>
-            <p className="text-xs text-slate-500">
-              Enforced server-side permissions across Administrator, Doctor, and Nurse roles
-            </p>
+          <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Users size={16} className="text-cyan-500" />
+                <span>Interactive Role-Based Access Control (RBAC) Matrix</span>
+              </h3>
+              <p className="text-xs text-slate-500">
+                Configure module permissions (Edit, View, or Restricted) for Doctor and Nurse roles. Restricted pages are completely hidden from the sidebar.
+              </p>
+            </div>
+            <span className="text-[11px] font-mono font-semibold px-2.5 py-1 rounded-lg bg-emerald-950 text-emerald-400 border border-emerald-800">
+              Live Permission Engine Active
+            </span>
           </div>
 
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-800 font-semibold text-slate-500">
-                <th className="p-2.5">Feature / Privilege</th>
-                <th className="p-2.5">Administrator</th>
-                <th className="p-2.5">Doctor</th>
-                <th className="p-2.5">Nurse</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-              <tr>
-                <td className="p-2.5 font-medium">View Dashboard &amp; 6 Beds</td>
-                <td className="p-2.5 text-emerald-600 font-bold">Yes</td>
-                <td className="p-2.5 text-emerald-600 font-bold">Yes</td>
-                <td className="p-2.5 text-emerald-600 font-bold">Yes</td>
-              </tr>
-              <tr>
-                <td className="p-2.5 font-medium">View Authorized Patient Details</td>
-                <td className="p-2.5 text-emerald-600 font-bold">All Patients</td>
-                <td className="p-2.5 text-emerald-600 font-bold">Assigned Beds</td>
-                <td className="p-2.5 text-emerald-600 font-bold">Assigned Beds</td>
-              </tr>
-              <tr>
-                <td className="p-2.5 font-medium">Acknowledge Active Alerts</td>
-                <td className="p-2.5 text-emerald-600 font-bold">Yes</td>
-                <td className="p-2.5 text-emerald-600 font-bold">Yes</td>
-                <td className="p-2.5 text-emerald-600 font-bold">Yes</td>
-              </tr>
-              <tr>
-                <td className="p-2.5 font-medium">Change Clinical Threshold Rules</td>
-                <td className="p-2.5 text-emerald-600 font-bold">Yes (Authorized)</td>
-                <td className="p-2.5 text-emerald-600 font-bold">Yes (Authorized)</td>
-                <td className="p-2.5 text-red-500 font-bold">No (Restricted)</td>
-              </tr>
-              <tr>
-                <td className="p-2.5 font-medium">Manage Staff Accounts &amp; Devices</td>
-                <td className="p-2.5 text-emerald-600 font-bold">Yes</td>
-                <td className="p-2.5 text-slate-400">View Only</td>
-                <td className="p-2.5 text-red-500 font-bold">No</td>
-              </tr>
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 font-semibold text-slate-400">
+                  <th className="p-3">Application Module</th>
+                  <th className="p-3">Administrator</th>
+                  <th className="p-3">Doctor Role</th>
+                  <th className="p-3">Nurse Role</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {[
+                  { key: "dashboard", label: "Dashboard & 6-Bed Monitoring", desc: "Live bedside station cards and vitals" },
+                  { key: "patients",  label: "Patient Inpatient Registry",   desc: "Admit, manage, and discharge neonates" },
+                  { key: "doctors",   label: "Doctors & Clinical Care Team", desc: "Clinician rosters and bed assignments" },
+                  { key: "alerts",    label: "Clinical Alert Log & Audits",  desc: "Acknowledge alarms and view thresholds" },
+                  { key: "analytics", label: "Analytics & PDF Reports",      desc: "Weekly reports and data export" },
+                  { key: "settings",  label: "System Settings & Devices",    desc: "Hardware registry and threshold configs" },
+                ].map((mod) => {
+                  const docPerm = rolePermissions?.[ROLES.DOCTOR]?.[mod.key] || "edit";
+                  const nurPerm = rolePermissions?.[ROLES.NURSE]?.[mod.key] || "view";
+
+                  return (
+                    <tr key={mod.key} className="hover:bg-slate-800/40 transition-colors">
+                      <td className="p-3">
+                        <div className="font-semibold text-slate-200">{mod.label}</div>
+                        <div className="text-[11px] text-slate-400">{mod.desc}</div>
+                      </td>
+                      <td className="p-3">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono font-semibold bg-emerald-950/70 text-emerald-400 border border-emerald-800">
+                          <CheckCircle2 size={12} />
+                          Full Control (Admin)
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <select
+                          value={docPerm}
+                          onChange={(e) => updateRolePermission(ROLES.DOCTOR, mod.key, e.target.value)}
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-cyan-500 ${
+                            docPerm === "edit"
+                              ? "bg-emerald-950/50 text-emerald-300 border-emerald-800"
+                              : docPerm === "view"
+                              ? "bg-cyan-950/50 text-cyan-300 border-cyan-800"
+                              : "bg-rose-950/50 text-rose-300 border-rose-800"
+                          }`}
+                        >
+                          <option value="edit">Edit (Full Control)</option>
+                          <option value="view">View (Read-Only)</option>
+                          <option value="restricted">Restricted (Hide Page)</option>
+                        </select>
+                      </td>
+                      <td className="p-3">
+                        <select
+                          value={nurPerm}
+                          onChange={(e) => updateRolePermission(ROLES.NURSE, mod.key, e.target.value)}
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-cyan-500 ${
+                            nurPerm === "edit"
+                              ? "bg-emerald-950/50 text-emerald-300 border-emerald-800"
+                              : nurPerm === "view"
+                              ? "bg-cyan-950/50 text-cyan-300 border-cyan-800"
+                              : "bg-rose-950/50 text-rose-300 border-rose-800"
+                          }`}
+                        >
+                          <option value="edit">Edit (Full Control)</option>
+                          <option value="view">View (Read-Only)</option>
+                          <option value="restricted">Restricted (Hide Page)</option>
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

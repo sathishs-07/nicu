@@ -81,10 +81,10 @@ export default function Doctors() {
   const filteredStaff = useMemo(() => {
     return staffList.filter((s) => {
       const matchSearch =
-        searchQuery === "" ||
-        s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.specialization.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.id.toLowerCase().includes(searchQuery.toLowerCase());
+        !searchQuery ||
+        s.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.specialization?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        s.id?.toLowerCase().includes(searchQuery.toLowerCase());
       const matchRole = roleFilter === "ALL" || s.role === roleFilter;
       const matchShift = shiftFilter === "ALL" || s.shiftType === shiftFilter;
       const matchAvail =
@@ -530,17 +530,37 @@ export default function Doctors() {
 
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Specialization / Qualifications:
+                  Pediatric / Neonatal Specialization:
                 </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Fellow in Neonatal Resuscitation &amp; ECMO"
+                <select
                   value={newStaffForm.specialization}
                   onChange={(e) =>
                     setNewStaffForm({ ...newStaffForm, specialization: e.target.value })
                   }
-                  className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none"
-                />
+                  className="w-full p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none text-xs"
+                >
+                  <optgroup label="Neonatal & Perinatal Medicine">
+                    <option value="Consultant Neonatologist (DM Neonatology)">Consultant Neonatologist (DM Neonatology)</option>
+                    <option value="Associate Neonatologist">Associate Neonatologist</option>
+                    <option value="Neonatal-Perinatal Medicine Specialist">Neonatal-Perinatal Medicine Specialist</option>
+                    <option value="Fellow in Neonatal Resuscitation & ECMO">Fellow in Neonatal Resuscitation & ECMO</option>
+                    <option value="Neonatal Neuro-Intensivist">Neonatal Neuro-Intensivist</option>
+                  </optgroup>
+                  <optgroup label="Pediatric Critical Care & Surgery">
+                    <option value="Senior Pediatric Intensivist (PICU/NICU)">Senior Pediatric Intensivist (PICU/NICU)</option>
+                    <option value="Pediatric Cardiologist & Neonatal Hemodynamics">Pediatric Cardiologist & Neonatal Hemodynamics</option>
+                    <option value="Pediatric Pulmonologist (Neonatal Airway)">Pediatric Pulmonologist (Neonatal Airway)</option>
+                    <option value="Pediatric Surgeon (Neonatal Emergencies)">Pediatric Surgeon (Neonatal Emergencies)</option>
+                    <option value="Staff Pediatrician (Inpatient Care)">Staff Pediatrician (Inpatient Care)</option>
+                    <option value="NICU Medical Officer (Pediatrics Resident)">NICU Medical Officer (Pediatrics Resident)</option>
+                  </optgroup>
+                  <optgroup label="Neonatal Nursing Specializations">
+                    <option value="Lead Neonatal Intensive Care Nurse (RN-NICU)">Lead Neonatal Intensive Care Nurse (RN-NICU)</option>
+                    <option value="Clinical Nurse Specialist - Neonatology">Clinical Nurse Specialist - Neonatology</option>
+                    <option value="Staff Nurse - Incubator Station Care">Staff Nurse - Incubator Station Care</option>
+                    <option value="Pediatric Transport & Resuscitation Nurse">Pediatric Transport & Resuscitation Nurse</option>
+                  </optgroup>
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

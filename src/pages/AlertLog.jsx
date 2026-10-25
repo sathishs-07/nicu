@@ -62,11 +62,11 @@ export default function AlertLog() {
         (selectedType === "Sensor" && (a.alertType.includes("Sensor") || a.alertType.includes("Battery") || a.alertType.includes("Disconnect")));
 
       const matchSearch =
-        searchQuery === "" ||
-        a.alertId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        a.babyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        a.bedId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        a.assignedStaff.toLowerCase().includes(searchQuery.toLowerCase());
+        !searchQuery ||
+        a.alertId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        a.babyName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        a.bedId?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        a.assignedStaff?.toLowerCase().includes(searchQuery.toLowerCase());
 
       return matchBed && matchPriority && matchStatus && matchType && matchSearch;
     });
