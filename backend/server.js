@@ -92,10 +92,11 @@ app.get("/api/health", async (req, res) => {
 });
 
 // ─── Beds Endpoints ──────────────────────────────────────────
-// List all 6 beds with live 15s heartbeat freshness
+// List all 6 beds with live 15s heartbeat freshness and hardware device synchronization
 app.get("/api/beds", async (req, res) => {
   try {
     const beds = await Bed.find().sort({ bedId: 1 });
+    const devices = await Device.find();
     const now = Date.now();
     const processedBeds = beds.map((b) => {
       const bedObj = b.toObject();
@@ -107,6 +108,14 @@ app.get("/api/beds", async (req, res) => {
         }
       } else {
         bedObj.connectionState = "CONNECTED";
+      }
+      // Populate deviceId from Device collection if missing on Bed
+      if (!bedObj.deviceId) {
+        const boundDev = devices.find((d) => d.assignedBedId === bedObj.bedId);
+        if (boundDev) {
+          bedObj.deviceId = boundDev.deviceId;
+          bedObj.deviceMac = boundDev.macAddress;
+        }
       }
       return bedObj;
     });
@@ -614,19 +623,23 @@ app.post("/api/patients/:id/discharge", async (req, res) => {
       );
     }
 
-    // Unassign previous ESP32 device
-    if (previousDeviceId) {
-      await Device.updateOne(
-        { deviceId: previousDeviceId },
-        {
-          $set: {
-            assignedBedId: null,
-            assignedPatientId: null,
-            status: "UNASSIGNED",
-          },
-        }
-      );
-    }
+    // Unassign any ESP32 device bound to this patient or this bed
+    await Device.updateMany(
+      {
+        $or: [
+          ...(previousDeviceId ? [{ deviceId: previousDeviceId }] : []),
+          ...(previousBedId ? [{ assignedBedId: previousBedId }] : []),
+          { assignedPatientId: patient.patientId },
+        ],
+      },
+      {
+        $set: {
+          assignedBedId: null,
+          assignedPatientId: null,
+          status: "UNASSIGNED",
+        },
+      }
+    );
 
     // Audit Log
     await AuditLog.create({
@@ -872,11 +885,52 @@ app.post("/api/alerts/:id/resolve", async (req, res) => {
 });
 
 // ─── Device Management (ESP32 Products) Endpoints ───────────
-// List all registered ESP32 devices
+// List active ESP32 fleet devices according to clinical rules:
+// - Shows all devices assigned to a patient bed (with real-time ONLINE or OFFLINE status).
+// - Shows unassigned devices ONLY IF currently active & online (AVAILABLE for new assignment).
+// - Automatically excludes offline unassigned devices so staff only see reachable hardware.
 app.get("/api/devices", async (req, res) => {
   try {
-    const devices = await Device.find().sort({ deviceId: 1 });
-    res.json(devices);
+    const now = Date.now();
+    const allDevices = await Device.find().sort({ deviceId: 1 });
+    const beds = await Bed.find();
+    const activeBedsMap = new Map(beds.map((b) => [b.bedId, b]));
+
+    const processed = allDevices.map((d) => {
+      const devObj = d.toObject();
+      const lastSeenMs = devObj.lastSeen ? new Date(devObj.lastSeen).getTime() : 0;
+      // Freshness: online if telemetry received within 20 seconds
+      const isOnline = lastSeenMs > 0 && now - lastSeenMs <= 20000;
+      
+      const isAssigned = Boolean(devObj.assignedBedId);
+
+      let status = "OFFLINE";
+      if (isAssigned) {
+        status = isOnline ? "ONLINE" : "OFFLINE";
+      } else {
+        status = isOnline ? "AVAILABLE" : "OFFLINE";
+      }
+
+      return {
+        ...devObj,
+        isOnline,
+        isAssigned,
+        status,
+        lastSeenMs,
+        timeSinceLastSeenSec: lastSeenMs > 0 ? Math.round((now - lastSeenMs) / 1000) : null,
+      };
+    });
+
+    // Clinical Product Rules:
+    // 1. Always return patient-assigned devices so offline alerts remain visible.
+    // 2. Return unassigned devices ONLY IF they are active and online (ready for new assignment).
+    // 3. Offline unassigned devices are hidden from available pool.
+    const visibleDevices = processed.filter((d) => {
+      if (d.isAssigned) return true;
+      return d.isOnline;
+    });
+
+    res.json(visibleDevices);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

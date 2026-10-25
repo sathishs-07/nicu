@@ -483,14 +483,14 @@ export default function Settings() {
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                    ESP32 Microcontroller Registry ({devices.length > 0 ? devices.length : beds.length} Products)
+                    ESP32 Microcontroller Registry ({devices.length} Active Devices)
                   </h3>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 border border-teal-500/30">
-                    {devices.filter((d) => d.status === "ONLINE").length || beds.length} Online
+                    {devices.filter((d) => d.isOnline || d.status === "ONLINE" || d.status === "AVAILABLE").length} Online
                   </span>
                   {devices.some((d) => !d.assignedBedId) && (
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                      {devices.filter((d) => !d.assignedBedId).length} Unassigned
+                      {devices.filter((d) => !d.assignedBedId).length} Available for Assignment
                     </span>
                   )}
                 </div>
@@ -587,20 +587,16 @@ export default function Settings() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-                  {(devices.length > 0 ? devices : beds.map((b) => ({
-                    deviceId: b.deviceId,
-                    deviceLabel: `ESP32 Node (${b.bedId})`,
-                    model: "ESP32-S3 DevKit",
-                    macAddress: b.deviceMac,
-                    firmwareVersion: b.firmwareVersion,
-                    assignedBedId: b.bedId,
-                    status: "ONLINE",
-                    batteryPercent: b.batteryPercent,
-                    rssi: b.rssi,
-                    signalQuality: b.signalQuality,
-                  }))).map((d) => {
-                    const assignedBed = beds.find((b) => b.bedId === d.assignedBedId);
-                    return (
+                  {devices.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-8 text-center text-slate-400 font-mono text-xs">
+                        No active ESP32 products transmitting. Power on an ESP32 or flash firmware to auto-discover.
+                      </td>
+                    </tr>
+                  ) : (
+                    devices.map((d) => {
+                      const assignedBed = beds.find((b) => b.bedId === d.assignedBedId);
+                      return (
                       <tr key={d.deviceId} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                         <td className="p-3 pl-4">
                           <div className="flex items-center gap-2">
@@ -646,24 +642,28 @@ export default function Settings() {
 
                         <td className="p-3">
                           <span
-                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10.5px] font-semibold ${
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold border ${
                               d.status === "ONLINE"
-                                ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30"
-                                : d.status === "WARNING"
-                                ? "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-500/30"
-                                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-700"
+                                ? "bg-emerald-950/60 text-emerald-400 border-emerald-500/40"
+                                : d.status === "AVAILABLE"
+                                ? "bg-cyan-950/60 text-cyan-300 border-cyan-500/40"
+                                : "bg-rose-950/60 text-rose-400 border-rose-800/40"
                             }`}
                           >
                             <span
                               className={`w-1.5 h-1.5 rounded-full ${
                                 d.status === "ONLINE"
-                                  ? "bg-emerald-500 animate-pulse"
-                                  : d.status === "WARNING"
-                                  ? "bg-amber-500"
-                                  : "bg-slate-400"
+                                  ? "bg-emerald-400 animate-pulse"
+                                  : d.status === "AVAILABLE"
+                                  ? "bg-cyan-400"
+                                  : "bg-rose-500"
                               }`}
                             />
-                            {d.status || "ONLINE"}
+                            {d.status === "ONLINE"
+                              ? "ONLINE"
+                              : d.status === "AVAILABLE"
+                              ? "AVAILABLE"
+                              : "OFFLINE"}
                           </span>
                         </td>
 
@@ -712,7 +712,7 @@ export default function Settings() {
                         </td>
                       </tr>
                     );
-                  })}
+                  }))}
                 </tbody>
               </table>
             </div>

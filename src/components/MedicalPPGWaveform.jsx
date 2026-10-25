@@ -13,6 +13,7 @@ export default function MedicalPPGWaveform({
   isLive = true,
   height = 140,
   showControls = true,
+  showTelemetryLabels = false,
   strokeColor = "#ffffff",
   fillColor = "rgba(255, 255, 255, 0.95)",
   backgroundColor = "#101632",
@@ -84,17 +85,15 @@ export default function MedicalPPGWaveform({
       }
 
       if (!isLive || heartRate <= 0) {
-        // Flatline / Standby indicator
+        // Flatline / Standby baseline without text collision
         ctx.beginPath();
-        ctx.moveTo(0, height * 0.65);
-        ctx.lineTo(width, height * 0.65);
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 4]);
+        ctx.moveTo(0, height * 0.5);
+        ctx.lineTo(width, height * 0.5);
+        ctx.strokeStyle = "rgba(148, 163, 184, 0.35)";
+        ctx.lineWidth = 1.5;
         ctx.stroke();
-
-        ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-        ctx.font = "11px JetBrains Mono, monospace";
-        ctx.fillText("SENSOR DISCONNECTED / AWAITING PACKET", 16, height * 0.4);
+        ctx.setLineDash([]);
         return;
       }
 
@@ -156,24 +155,26 @@ export default function MedicalPPGWaveform({
 
   return (
     <div className="relative rounded-2xl overflow-hidden border border-slate-700/60 shadow-inner select-none">
-      {/* Top telemetry tags */}
-      <div className="absolute top-2.5 left-3.5 z-10 flex items-center gap-2">
-        <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-black/40 text-cyan-300 border border-cyan-500/30">
-          PLETH (PPG)
-        </span>
-        <span className="font-mono text-[10px] font-semibold text-white/80">
-          Gain: x1.0 · Speed: 25mm/s
-        </span>
-      </div>
+      {/* Top telemetry tags (only when enabled, avoiding overlap in compact cards) */}
+      {showTelemetryLabels && (
+        <div className="absolute top-2.5 left-3.5 z-10 flex items-center gap-2">
+          <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-black/40 text-cyan-300 border border-cyan-500/30">
+            PLETH (PPG)
+          </span>
+          <span className="font-mono text-[10px] font-semibold text-white/80">
+            Gain: x1.0 · Speed: 25mm/s
+          </span>
+        </div>
+      )}
 
-      <div className="absolute top-2.5 right-3.5 z-10 flex items-center gap-2 font-mono text-xs">
-        {isLive && heartRate > 0 && (
+      {showTelemetryLabels && isLive && heartRate > 0 && (
+        <div className="absolute top-2.5 right-3.5 z-10 flex items-center gap-2 font-mono text-xs">
           <span className="px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-400 font-bold border border-emerald-500/40 flex items-center gap-1.5 animate-pulse">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
             LIVE PULSE: {heartRate} BPM
           </span>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Main Canvas Waveform */}
       <canvas

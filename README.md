@@ -81,8 +81,21 @@ graph LR
 
 ## 🔌 ESP32 Hardware Integration
 
-### Decoupled Hardware Architecture
+### Decoupled Hardware Architecture & Fleet Lifecycle State Machine
 The physical ESP32 firmware does **NOT** hardcode bed IDs. The hardware transmits only its physical `DEVICE_ID` (e.g. `ESP32-NICU-01`). The NeoCare backend database dynamically maps devices to whichever bed the infant is admitted to, enabling seamless hot-swapping after discharge without reflashing.
+
+#### Fleet Device State Rules:
+1. **Patient-Bound Devices**:
+   - Any ESP32 actively assigned to an admitted patient bed is always tracked.
+   - If transmitting telemetry ($\le 20\text{s}$ heartbeat) $\rightarrow$ Marked **`ONLINE`** (active vital streaming).
+   - If sensor disconnects or powers down ($> 20\text{s}$) $\rightarrow$ Marked **`OFFLINE`** with a clear sensor disconnected alert, ensuring doctors immediately notice transmission failure.
+2. **Unassigned / Available Pool**:
+   - Unassigned devices appear in device management and admission dropdowns **ONLY IF** actively transmitting ($\le 20\text{s}$ heartbeat) as **`AVAILABLE (Ready to Assign)`**.
+   - If an unassigned device powers off or goes offline, it is automatically filtered out from available assignment lists so staff cannot bind unreachable hardware.
+3. **Automatic Discharge Re-pooling**:
+   - Upon discharging a patient, their bound ESP32 is automatically unassigned.
+   - If still powered and streaming, it immediately transitions to the `AVAILABLE` pool for the next neonate admission.
+   - If powered down, it safely drops out until brought online again.
 
 ### Arduino Sketch Setup (3-Minute Setup)
 1. In Arduino IDE, install **`PubSubClient`** by Nick O'Leary (**Tools → Manage Libraries**).
@@ -127,7 +140,9 @@ npm run build
 
 ---
 
-## 🔒 Security & Medical Auditing
-- **Permanent Dark Theme**: Default clinical viewing mode.
-- **Heartbeat Freshness**: Strict 15-second timeout differentiates true live data from disconnected sensors.
+## 🔒 Clinical Standards & Safety
+- **Permanent Clinical Dark Theme**: Modern clinical viewing standard with zero glare.
+- **Strict Heartbeat Freshness**: 15–20s timeout ensures stale vitals are never misread as stable living signs.
+- **Collision-Free PPG Waveforms**: Flatline standby baseline prevents text overlaps on compact monitor tiles.
+- **Uncluttered Navigation**: Clean top command navbar with streamlined side drawer navigation.
 - **Immutable Audit Trail**: All threshold updates, bed admissions, discharges, and alarm acknowledgments are timestamped and recorded in MongoDB.

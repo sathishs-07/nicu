@@ -115,9 +115,14 @@ export default function Patients() {
     return allBedIds.filter((bId) => !occupiedBedIds.includes(bId));
   }, [beds, occupiedBedIds]);
 
-  // Available devices (only unassigned or spare devices)
+  // Available devices (only active online unassigned devices ready for assignment)
   const availableDevices = useMemo(() => {
-    return (devices || []).filter((d) => !occupiedDeviceIds.includes(d.deviceId));
+    return (devices || []).filter(
+      (d) =>
+        !occupiedDeviceIds.includes(d.deviceId) &&
+        !d.assignedBedId &&
+        (d.isOnline || d.status === "AVAILABLE" || d.status === "ONLINE")
+    );
   }, [devices, occupiedDeviceIds]);
 
   // Doctors list for dropdowns

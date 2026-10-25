@@ -53,37 +53,18 @@ export default function Sidebar({ onWidthChange }) {
         borderRight: "1px solid var(--sidebar-border)",
       }}
     >
-      {/* Unit Identification Header */}
-      <div className="flex items-center justify-between px-4 py-4 border-b border-slate-200 dark:border-slate-800/80">
-        <div className="flex items-center gap-3 overflow-hidden">
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 shadow-xs"
-            style={{
-              background: "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)",
-              color: "#ffffff",
-            }}
-          >
-            <HeartPulse size={20} className="text-white animate-pulse" />
-          </div>
-          {!collapsed && (
-            <div className="min-w-0">
-              <div className="font-bold text-sm tracking-wide text-slate-100 truncate flex items-center gap-1.5">
-                NeoCare
-                <span className="text-[10px] bg-cyan-950 text-cyan-300 font-mono font-medium px-1.5 py-0.2 rounded border border-cyan-800">
-                  NICU
-                </span>
-              </div>
-              <div className="text-[11px] text-slate-400 font-mono truncate">
-                Command Center v2.1
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Toggle Collapse Button */}
+      {/* Sidebar Control Bar — Clean, no duplicate NeoCare logo */}
+      <div className="flex items-center justify-between px-3.5 py-3 border-b border-slate-200 dark:border-slate-800/80">
+        {!collapsed && (
+          <span className="text-[11px] font-semibold tracking-wider uppercase text-slate-400 dark:text-slate-500 font-mono">
+            Navigation
+          </span>
+        )}
         <button
           onClick={toggleCollapse}
-          className="text-slate-400 hover:text-slate-700 dark:hover:text-white p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
+          className={`text-slate-400 hover:text-slate-700 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors ${
+            collapsed ? "mx-auto" : ""
+          }`}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}

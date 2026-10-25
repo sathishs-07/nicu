@@ -655,8 +655,8 @@ export function AppProvider({ children }) {
   const activeAlertsCount = activeAlertsList.length;
   const devicesOnlineCount =
     devices.length > 0
-      ? devices.filter((d) => d.status === "ONLINE").length
-      : beds.filter((b) => b.lastHeartbeatMs > 0 && Date.now() - b.lastHeartbeatMs < 30000).length;
+      ? devices.filter((d) => d.isOnline || d.status === "ONLINE" || d.status === "AVAILABLE").length
+      : beds.filter((b) => b.lastHeartbeatMs > 0 && Date.now() - b.lastHeartbeatMs < 15000).length;
 
   return (
     <AppContext.Provider

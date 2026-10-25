@@ -16,6 +16,7 @@ import {
   WifiOff,
   User,
   AlertTriangle,
+  AlertCircle,
   CheckCircle2,
   ChevronRight,
   Cpu,
@@ -23,9 +24,17 @@ import {
   BedDouble,
 } from "lucide-react";
 import MedicalPPGWaveform from "./MedicalPPGWaveform";
+import { useApp } from "../context/AppContext";
 
 export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice }) {
   const navigate = useNavigate();
+  const { devices } = useApp();
+
+  // Link any device assigned to this bed
+  const linkedDevice = (devices || []).find(
+    (d) => d.deviceId === bed.deviceId || d.assignedBedId === bed.bedId
+  );
+  const effectiveDeviceId = bed.deviceId || linkedDevice?.deviceId;
 
   // Strict 15-second freshness rule
   const isHeartbeatPresent = Boolean(bed.lastHeartbeatMs && bed.lastHeartbeatMs > 0);
@@ -120,7 +129,9 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
   }
 
   // Battery Icon
-  const pct = bed.batteryPercent || 100;
+  const pct = (effectiveDeviceId && linkedDevice?.batteryPercent !== undefined)
+    ? linkedDevice.batteryPercent
+    : (bed.batteryPercent || 100);
   let batteryIcon = <Battery size={14} className="text-cyan-400" />;
   let batteryText = "text-slate-300";
   if (pct <= 25) {
@@ -320,23 +331,34 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
                 e.stopPropagation();
                 if (onAssignDevice) onAssignDevice(bed);
               }}
-              className="font-mono text-[11px] font-semibold text-cyan-400 hover:text-cyan-300 flex items-center gap-1 px-2 py-0.5 rounded-lg bg-cyan-950/50 border border-cyan-800/60 transition-colors"
+              className={`font-mono text-[11px] font-semibold flex items-center gap-1 px-2 py-0.5 rounded-lg border transition-colors ${
+                effectiveDeviceId
+                  ? isLiveOnline
+                    ? "text-emerald-400 bg-emerald-950/40 border-emerald-800/60"
+                    : "text-rose-400 bg-rose-950/40 border-rose-800/60"
+                  : "text-amber-400 bg-amber-950/40 border-amber-800/60"
+              }`}
               title="Click to assign or rebind ESP32 hardware"
             >
-              <span>{bed.deviceId || "Unassigned"}</span>
-              <span className="text-[10px] text-cyan-300 font-normal">⚙️ Swap</span>
+              <span>{effectiveDeviceId || "Unassigned"}</span>
+              <span className="text-[10px] opacity-75">
+                {effectiveDeviceId ? (isLiveOnline ? "· Online" : "· Offline") : "· Bind"}
+              </span>
+              <span className="text-[10px] text-cyan-300 font-normal ml-0.5">⚙️</span>
             </button>
           </div>
 
-          <div className="flex items-center justify-between text-slate-300">
-            <span className="text-[11px] text-slate-400">
-              Device Battery Backup:
-            </span>
-            <div className="flex items-center gap-1 font-mono text-xs" title={`Battery: ${pct}%`}>
-              {batteryIcon}
-              <span className={batteryText}>{pct}%</span>
+          {effectiveDeviceId && (
+            <div className="flex items-center justify-between text-slate-300">
+              <span className="text-[11px] text-slate-400">
+                Device Battery Backup:
+              </span>
+              <div className="flex items-center gap-1 font-mono text-xs" title={`Battery: ${pct}%`}>
+                {batteryIcon}
+                <span className={batteryText}>{pct}%</span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Active Alerts Notification */}
           <div className="py-0.5">
@@ -349,6 +371,11 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
                 <span className="font-mono text-[10px]">
                   {bed.activeAlerts[0].duration}
                 </span>
+              </div>
+            ) : !isLiveOnline ? (
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-medium">
+                <AlertCircle size={13} className="text-slate-400" />
+                Offline · Sensor Disconnected (Standby)
               </div>
             ) : (
               <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium">

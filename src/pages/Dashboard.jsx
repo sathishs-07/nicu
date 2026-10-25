@@ -663,11 +663,21 @@ export default function Dashboard() {
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
                 >
                   <option value="UNASSIGN">-- Unbind / Release Device (Put Bed in Standby) --</option>
-                  {(devices || []).map((d) => (
-                    <option key={d.deviceId} value={d.deviceId}>
-                      {d.deviceId} {d.assignedBedId ? `(Currently on ${d.assignedBedId})` : "(Spare / Available)"} — Battery {d.batteryPercent}%
-                    </option>
-                  ))}
+                  {(devices || [])
+                    .filter(
+                      (d) =>
+                        d.assignedBedId === selectedBedForDevice?.bedId ||
+                        (!d.assignedBedId && (d.isOnline || d.status === "AVAILABLE" || d.status === "ONLINE"))
+                    )
+                    .map((d) => (
+                      <option key={d.deviceId} value={d.deviceId}>
+                        {d.deviceId}{" "}
+                        {d.assignedBedId
+                          ? `(Currently bound to ${d.assignedBedId})`
+                          : "(Available Online)"}{" "}
+                        — Battery {d.batteryPercent}%
+                      </option>
+                    ))}
                   <option value="NEW">➕ Register &amp; Bind a New ESP32 Product ID...</option>
                 </select>
               </div>
