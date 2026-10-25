@@ -23,6 +23,7 @@ import {
   ShieldAlert,
   Activity,
   AlertCircle,
+  Cpu,
 } from "lucide-react";
 
 export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice, waveforms = [] }) {
