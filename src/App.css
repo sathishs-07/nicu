@@ -1,0 +1,23 @@
+/* App.css — component-level overrides and supplemental styles */
+
+/* Recharts overrides */
+.recharts-surface {
+  overflow: visible;
+}
+
+.recharts-cartesian-axis-tick text {
+  fill: #334155;
+}
+
+/* Smooth number transitions */
+.vital-value {
+  display: inline-block;
+  transition: color 0.3s ease;
+}
+
+/* Focus outline removal for buttons that have visual states */
+button:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.5);
+  outline-offset: 2px;
+  border-radius: 6px;
+}

@@ -1,0 +1,187 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;0,14..32,800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+/* ─── CSS Custom Properties — Clinical Theme Design System ─── */
+:root,
+[data-theme="light"],
+html:not(.dark) {
+  /* Soft off-white / light blue-grey hospital dashboard */
+  --bg-app: #f8fafc;
+  --bg-subtle: #f1f5f9;
+  --panel-bg: #ffffff;
+  --panel-border: #e2e8f0;
+  --panel-border-hover: #cbd5e1;
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --card-shadow: 0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
+  --card-shadow-hover: 0 6px 12px -2px rgba(15, 23, 42, 0.08), 0 3px 6px -2px rgba(15, 23, 42, 0.05);
+
+  /* Crisp Modern Clinical Light Sidebar */
+  --sidebar-bg: #ffffff;
+  --sidebar-border: #e2e8f0;
+  --sidebar-text: #475569;
+  --sidebar-text-hover: #0f172a;
+  --sidebar-active-bg: #f0fdfa;
+  --sidebar-active-text: #0d9488;
+  --sidebar-active-indicator: #0d9488;
+
+  /* Top Clinical Header */
+  --header-bg: #ffffff;
+  --header-border: #e2e8f0;
+
+  /* Clinical Signal Tokens */
+  --teal-primary: #0d9488;
+  --teal-accent: #14b8a6;
+  --teal-bg: #f0fdfa;
+  --teal-border: #99f6e4;
+
+  --amber-warn: #d97706;
+  --amber-bg: #fffbeb;
+  --amber-border: #fde68a;
+
+  --red-alert: #dc2626;
+  --red-bg: #fef2f2;
+  --red-border: #fecaca;
+
+  --grey-unavailable: #64748b;
+  --grey-bg: #f8fafc;
+  --grey-border: #e2e8f0;
+
+  /* High-Contrast Typography */
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+
+  /* Charts & Controls */
+  --chart-grid: #e2e8f0;
+  --chart-axis: #64748b;
+  --chip-bg: #f1f5f9;
+  --chip-border: #e2e8f0;
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+}
+
+[data-theme="dark"],
+html.dark {
+  --bg-app: #060b17;
+  --bg-subtle: #091224;
+  --panel-bg: #0d172e;
+  --panel-border: #1a294d;
+  --panel-border-hover: #2a3e70;
+  --card-bg: #0d172e;
+  --card-border: #1a294d;
+  --card-shadow: 0 2px 4px 0 rgba(0, 0, 0, 0.35);
+  --card-shadow-hover: 0 8px 16px 0 rgba(0, 0, 0, 0.45);
+
+  --sidebar-bg: #040813;
+  --sidebar-border: #0e1a38;
+  --sidebar-text: #64748b;
+  --sidebar-text-hover: #e2e8f0;
+  --sidebar-active-bg: rgba(20, 184, 166, 0.18);
+  --sidebar-active-text: #2dd4bf;
+  --sidebar-active-indicator: #14b8a6;
+
+  --header-bg: #091124;
+  --header-border: #132247;
+
+  --teal-primary: #14b8a6;
+  --teal-accent: #2dd4bf;
+  --teal-bg: rgba(20, 184, 166, 0.12);
+  --teal-border: rgba(20, 184, 166, 0.3);
+
+  --amber-warn: #f59e0b;
+  --amber-bg: rgba(245, 158, 11, 0.12);
+  --amber-border: rgba(245, 158, 11, 0.3);
+
+  --red-alert: #ef4444;
+  --red-bg: rgba(239, 68, 68, 0.14);
+  --red-border: rgba(239, 68, 68, 0.35);
+
+  --grey-unavailable: #64748b;
+  --grey-bg: rgba(255, 255, 255, 0.03);
+  --grey-border: rgba(255, 255, 255, 0.08);
+
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-faint: #475569;
+
+  --chart-grid: rgba(255, 255, 255, 0.06);
+  --chart-axis: #64748b;
+  --chip-bg: rgba(255, 255, 255, 0.04);
+  --chip-border: rgba(255, 255, 255, 0.1);
+  --input-bg: #0d172e;
+  --input-border: #1a294d;
+}
+
+/* ─── Global Base Styles ─── */
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ─── Card Utilities ─── */
+.clinical-card {
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  box-shadow: var(--card-shadow);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.clinical-card:hover {
+  border-color: var(--panel-border-hover);
+  box-shadow: var(--card-shadow-hover);
+}
+
+/* ─── Inputs & Form Controls ─── */
+input, select, textarea {
+  color: var(--text-primary);
+  background-color: var(--input-bg);
+}
+
+/* Subtle animation pulses for live monitoring */
+@keyframes softPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.96); }
+}
+
+.pulse-teal {
+  animation: softPulse 2.2s infinite ease-in-out;
+}
+
+@keyframes urgentBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.alert-pulse-red {
+  animation: urgentBlink 1s infinite ease-in-out;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
+}

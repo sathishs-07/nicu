@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: nicu-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: MONGO_URI
+        value: mongodb+srv://sathish07002_db_user:DmP4CsTEfO4vCZtG@cluster0.nk3wz0y.mongodb.net/nicu?retryWrites=true&w=majority
+      - key: MQTT_BROKER
+        value: mqtt://broker.hivemq.com:1883
