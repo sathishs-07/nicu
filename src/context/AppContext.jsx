@@ -46,6 +46,49 @@ export function AppProvider({ children }) {
   // Theme state: permanently dark clinical ICU theme
   const theme = "dark";
 
+  // Current logged in user (null = not logged in or restore from session)
+  const [currentUser, setCurrentUser] = useState(() => {
+    const saved = sessionStorage.getItem("nicu_user");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  });
+
+  // Clinical thresholds
+  const [thresholds, setThresholds] = useState({ ...DEFAULT_THRESHOLDS });
+
+  // Beds — starts empty, populated from MongoDB
+  const [beds, setBeds] = useState([]);
+
+  // Patients registry (active and discharged neonates)
+  const [patients, setPatients] = useState([]);
+
+  // Staff state — populated from MongoDB
+  const [staffList, setStaffList] = useState([]);
+
+  // ESP32 Devices registry
+  const [devices, setDevices] = useState([]);
+
+  // Alert log state — only real alerts from ESP32 telemetry
+  const [alertLog, setAlertLog] = useState([]);
+
+  // Audit trail state
+  const [auditLogs, setAuditLogs] = useState([]);
+
+  // Search filter
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Waveform buffers: last 60 real readings per bed (bedId → [{time, hr, spo2, temp}])
+  const [waveforms, setWaveforms] = useState({});
+
+  // Loading state for initial fetch
+  const [isLoading, setIsLoading] = useState(true);
+
   // Dynamic Role-Based Access Control (RBAC) Permissions matrix
   const [rolePermissions, setRolePermissions] = useState(() => {
     const saved = localStorage.getItem("nicu_role_permissions");
