@@ -4,8 +4,9 @@
 // Continuous Vitals Inspection, and Medical Discharge Protocols.
 // =============================================================
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
+import LegalMedicalReportModal from "../components/LegalMedicalReportModal";
 import {
   Baby,
   Users,
@@ -63,6 +64,36 @@ export default function Patients() {
   const [isDeviceGuideOpen, setIsDeviceGuideOpen] = useState(false);
   const [patientToDischarge, setPatientToDischarge] = useState(null);
   const [selectedPatientDetails, setSelectedPatientDetails] = useState(null);
+  const [legalReportPatient, setLegalReportPatient] = useState(null);
+
+  // Auto-handle admission or discharge from URL parameters (e.g. from Dashboard)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const admitBed = params.get("admitBed");
+    const action = params.get("action");
+    const ptId = params.get("patientId");
+
+    if (admitBed) {
+      setAdmitForm((prev) => ({ ...prev, assignedBedId: admitBed }));
+      setIsAdmitModalOpen(true);
+    } else if (action === "admit") {
+      setIsAdmitModalOpen(true);
+    }
+
+    if (action === "discharge" && ptId) {
+      const target = patients.find((p) => p.patientId === ptId);
+      if (target) {
+        setPatientToDischarge(target);
+        setDischargeForm({
+          dischargeCondition: "Full Recovery - Physiological Stability Reached",
+          dischargeWeight: target.currentWeight || target.birthWeight || "2,200 g",
+          dischargeDate: new Date().toISOString().substring(0, 10),
+          dischargeSummary: `Patient ${target.babyName} completed active intensive phototherapy and respiratory stabilization. Fully recovered and ready for discharge.`,
+        });
+        setIsDischargeModalOpen(true);
+      }
+    }
+  }, [patients]);
 
   // Admit Form State
   const [admitForm, setAdmitForm] = useState({
@@ -115,7 +146,7 @@ export default function Patients() {
     return allBedIds.filter((bId) => !occupiedBedIds.includes(bId));
   }, [beds, occupiedBedIds]);
 
-  // Available devices (only active online unassigned devices ready for assignment)
+  // Available devices (strictly only active online unassigned devices ready for assignment)
   const availableDevices = useMemo(() => {
     return (devices || []).filter(
       (d) =>
@@ -285,7 +316,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200 dark:border-slate-800">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 border border-teal-500/20">
+            <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-500/20">
               <Baby size={24} />
             </div>
             <div>
@@ -314,7 +345,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
               }));
               setIsAdmitModalOpen(true);
             }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm text-white bg-teal-600 hover:bg-teal-700 active:scale-95"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm text-white bg-blue-600 hover:bg-blue-700 active:scale-95"
           >
             <Plus size={16} />
             <span>Admit Neonate</span>
@@ -329,7 +360,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Admitted Inpatients
             </span>
-            <div className="p-2 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-600">
+            <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600">
               <Baby size={18} />
             </div>
           </div>
@@ -402,7 +433,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
               onClick={() => setActiveTab("ADMITTED")}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                 activeTab === "ADMITTED"
-                  ? "bg-white dark:bg-slate-900 text-teal-600 dark:text-teal-400 shadow-xs"
+                  ? "bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
@@ -412,7 +443,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
               onClick={() => setActiveTab("DISCHARGED")}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                 activeTab === "DISCHARGED"
-                  ? "bg-white dark:bg-slate-900 text-teal-600 dark:text-teal-400 shadow-xs"
+                  ? "bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
@@ -422,7 +453,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
               onClick={() => setActiveTab("ALL")}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
                 activeTab === "ALL"
-                  ? "bg-white dark:bg-slate-900 text-teal-600 dark:text-teal-400 shadow-xs"
+                  ? "bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-xs"
                   : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
@@ -441,7 +472,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
               placeholder="Search by baby, mother, Bed ID, diagnosis..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500"
+              className="w-full pl-9 pr-4 py-2 text-xs sm:text-sm rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
             />
           </div>
         </div>
@@ -457,16 +488,8 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
           <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
             {searchQuery
               ? `No records match "${searchQuery}". Try clearing search filters.`
-              : "No patients currently in this view. Click 'Admit Neonate' to register a new baby."}
+              : "No patient records currently found in this category."}
           </p>
-          {!searchQuery && (
-            <button
-              onClick={() => setIsAdmitModalOpen(true)}
-              className="mt-4 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 shadow-xs"
-            >
-              Admit First Patient
-            </button>
-          )}
         </div>
       ) : (
         <div className="space-y-3 sm:space-y-4">
@@ -478,7 +501,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
             return (
               <div
                 key={patient.patientId || patient._id}
-                className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:border-teal-500/40 transition-all"
+                className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs hover:border-blue-500/40 transition-all"
               >
                 <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                   {/* Neonate Identity Column */}
@@ -486,7 +509,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
                     <div
                       className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 font-bold text-lg ${
                         isAdmitted
-                          ? "bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 border border-teal-500/20"
+                          ? "bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-500/20"
                           : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
                       }`}
                     >
@@ -502,8 +525,8 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
                           {patient.patientId}
                         </span>
                         {isAdmitted ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-500/20">
-                            <span className="w-1.5 h-1.5 rounded-full bg-teal-500 animate-ping" />
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-500/20">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-ping" />
                             {patient.assignedBedId || "Bed Slot"}
                           </span>
                         ) : (
@@ -610,11 +633,20 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
 
                   {/* Action Buttons Column */}
                   <div className="flex items-center gap-2 self-end lg:self-center">
+                    <button
+                      onClick={() => setLegalReportPatient(patient)}
+                      className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-800 transition-colors flex items-center gap-1 cursor-pointer"
+                      title="Generate official legal medical summary and PDF"
+                    >
+                      <FileText size={14} />
+                      <span>Legal PDF</span>
+                    </button>
+
                     {isAdmitted ? (
                       <>
                         <Link
                           to={`/patients/${patient.patientId}`}
-                          className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-500/20 hover:bg-teal-100 dark:hover:bg-teal-900/40 transition-colors flex items-center gap-1"
+                          className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-colors flex items-center gap-1 shadow-xs"
                           title="View live vitals monitor"
                         >
                           <Activity size={14} />
@@ -623,7 +655,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
 
                         <button
                           onClick={() => openDischargeModal(patient)}
-                          className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-500/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors flex items-center gap-1"
+                          className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors flex items-center gap-1 cursor-pointer"
                           title="Initiate clinical discharge protocol"
                         >
                           <LogOut size={14} />
@@ -633,7 +665,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
                     ) : (
                       <button
                         onClick={() => setSelectedPatientDetails(patient)}
-                        className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center gap-1"
+                        className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
                       >
                         <FileText size={14} />
                         <span>Case Record</span>
@@ -653,7 +685,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
           <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
             <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-950/40">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-teal-50 dark:bg-teal-950 text-teal-600">
+                <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950 text-blue-600">
                   <Baby size={20} />
                 </div>
                 <div>
@@ -676,7 +708,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
             <form onSubmit={handleAdmitSubmit} className="p-6 overflow-y-auto space-y-5">
               {/* Section 1: Infant Identity */}
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-400 mb-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-400 mb-2">
                   1. Infant & Maternal Details
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -740,7 +772,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
 
               {/* Section 2: Clinical Parameters */}
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-400 mb-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-400 mb-2">
                   2. Clinical Parameters
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -789,7 +821,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
 
               {/* Section 3: Bed & Equipment Binding */}
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-400 mb-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-400 mb-2">
                   3. Bed Slot & Hardware Binding
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -835,21 +867,32 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Assign ESP32 Monitor
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Assign Online ESP32 Sensor
+                      </label>
+                      <span className="text-[10px] font-mono text-emerald-600 font-bold">
+                        Only Online Devices ({availableDevices.length})
+                      </span>
+                    </div>
                     <select
                       value={admitForm.deviceId}
                       onChange={(e) => setAdmitForm({ ...admitForm, deviceId: e.target.value })}
-                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-mono"
+                      className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono"
                     >
                       <option value="">-- Connect Later / Standby --</option>
                       {availableDevices.map((d) => (
                         <option key={d.deviceId} value={d.deviceId}>
-                          {d.deviceId} ({d.status || "Available"})
+                          {d.deviceId} (ONLINE · Battery {d.batteryPercent}%)
                         </option>
                       ))}
                     </select>
+                    {availableDevices.length === 0 && (
+                      <p className="text-[11px] text-amber-600 font-medium mt-1 flex items-center gap-1">
+                        <AlertTriangle size={12} />
+                        No unassigned online ESP32 sensors detected. Patient will be admitted in standby until a sensor connects.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -879,7 +922,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 shadow-md"
+                  className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md"
                 >
                   Confirm & Admit Neonate
                 </button>
@@ -1030,7 +1073,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
           <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <FileText className="text-teal-600" size={20} />
+                <FileText className="text-blue-600" size={20} />
                 <h3 className="font-bold text-base text-slate-900 dark:text-white">
                   Case Record Archive: {selectedPatientDetails.babyName}
                 </h3>
@@ -1105,9 +1148,9 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="w-full max-w-3xl bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
             {/* Modal Header */}
-            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-teal-500/10 to-indigo-500/10">
+            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-blue-500/10 to-indigo-500/10">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-2xl bg-teal-600 text-white shadow-xs">
+                <div className="p-2.5 rounded-2xl bg-blue-600 text-white shadow-xs">
                   <Cpu size={22} />
                 </div>
                 <div>
@@ -1130,13 +1173,13 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
             {/* Modal Scrollable Body */}
             <div className="p-6 overflow-y-auto space-y-6 text-xs sm:text-sm">
               {/* Architecture Overview Banner */}
-              <div className="p-4 rounded-2xl bg-teal-50 dark:bg-teal-950/40 border border-teal-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="p-4 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-500/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
-                  <div className="font-bold text-teal-900 dark:text-teal-200 flex items-center gap-1.5">
-                    <Sparkles size={16} className="text-teal-600" />
+                  <div className="font-bold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                    <Sparkles size={16} className="text-blue-600" />
                     How It Works (100% Free & No Setup Required):
                   </div>
-                  <p className="text-xs text-teal-800 dark:text-teal-300 mt-1">
+                  <p className="text-xs text-blue-800 dark:text-blue-300 mt-1">
                     ESP32 publishes directly to the free cloud broker{" "}
                     <code className="bg-white/80 dark:bg-slate-900 px-1 py-0.5 rounded font-mono font-bold">
                       broker.hivemq.com:1883
@@ -1149,7 +1192,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
               {/* Step 1 */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-full bg-teal-600 text-white font-bold text-xs flex items-center justify-center">
+                  <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
                     1
                   </span>
                   <h4 className="font-bold text-slate-900 dark:text-white text-sm">
@@ -1160,10 +1203,10 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
                   <p>In Arduino IDE, click <strong>Tools → Manage Libraries...</strong> and search:</p>
                   <ul className="list-disc list-inside space-y-1 font-mono text-[11px] bg-slate-50 dark:bg-slate-950 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
                     <li>
-                      <strong className="text-teal-600 dark:text-teal-400">PubSubClient</strong> by Nick O'Leary (click Install)
+                      <strong className="text-blue-600 dark:text-blue-400">PubSubClient</strong> by Nick O'Leary (click Install)
                     </li>
                     <li>
-                      <strong className="text-teal-600 dark:text-teal-400">SparkFun MAX3010x</strong> (optional, only if sensor is attached)
+                      <strong className="text-blue-600 dark:text-blue-400">SparkFun MAX3010x</strong> (optional, only if sensor is attached)
                     </li>
                   </ul>
                 </div>
@@ -1172,7 +1215,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
               {/* Step 2 */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-full bg-teal-600 text-white font-bold text-xs flex items-center justify-center">
+                  <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
                     2
                   </span>
                   <h4 className="font-bold text-slate-900 dark:text-white text-sm">
@@ -1181,7 +1224,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
                 </div>
                 <div className="ml-8 space-y-2">
                   <p className="text-xs text-slate-600 dark:text-slate-400">
-                    Open <code className="font-mono text-teal-600 font-bold">esp32/nicu_esp32_hivemq_transmitter.ino</code> in Arduino IDE. Replace lines 28–35 with your WiFi:
+                    Open <code className="font-mono text-blue-600 font-bold">esp32/nicu_esp32_hivemq_transmitter.ino</code> in Arduino IDE. Replace lines 28–35 with your WiFi:
                   </p>
 
                   <div className="relative rounded-2xl bg-slate-950 p-4 border border-slate-800 text-slate-200 font-mono text-xs overflow-x-auto">
@@ -1200,7 +1243,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
               {/* Step 3 */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-full bg-teal-600 text-white font-bold text-xs flex items-center justify-center">
+                  <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
                     3
                   </span>
                   <h4 className="font-bold text-slate-900 dark:text-white text-sm">
@@ -1217,7 +1260,7 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
               {/* Step 4 */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-full bg-teal-600 text-white font-bold text-xs flex items-center justify-center">
+                  <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
                     4
                   </span>
                   <h4 className="font-bold text-slate-900 dark:text-white text-sm">
@@ -1285,13 +1328,25 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
               </span>
               <button
                 onClick={() => setIsDeviceGuideOpen(false)}
-                className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 shadow-sm"
+                className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-sm cursor-pointer"
               >
                 Got It, Let's Connect!
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Official Legal Medical Record & PDF Export Modal ── */}
+      {legalReportPatient && (
+        <LegalMedicalReportModal
+          isOpen={Boolean(legalReportPatient)}
+          onClose={() => setLegalReportPatient(null)}
+          patient={legalReportPatient}
+          bed={beds.find((b) => b.bedId === legalReportPatient.assignedBedId)}
+          alerts={patients.find((p) => p.patientId === legalReportPatient.patientId)?.alerts || []}
+          currentUser={currentUser}
+        />
       )}
     </div>
   );

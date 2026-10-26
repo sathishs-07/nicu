@@ -187,7 +187,7 @@ export default function Settings() {
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs">
           <span className="text-slate-400">Authenticated as:</span>
           <strong className="text-slate-800 dark:text-slate-200">{currentUser.name}</strong>
-          <span className="text-[10px] font-mono font-bold text-teal-600 bg-teal-50 dark:bg-teal-950/60 px-1.5 py-0.2 rounded border border-teal-500/30">
+          <span className="text-[10px] font-mono font-bold text-blue-600 bg-blue-50 dark:bg-blue-950/60 px-1.5 py-0.2 rounded border border-blue-500/30">
             {currentUser.role}
           </span>
         </div>
@@ -199,7 +199,7 @@ export default function Settings() {
           onClick={() => setActiveSubTab("alert-rules")}
           className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
             activeSubTab === "alert-rules"
-              ? "border-teal-500 text-teal-600 dark:text-teal-400"
+              ? "border-blue-500 text-blue-600 dark:text-blue-400"
               : "border-transparent text-slate-500 hover:text-slate-800"
           }`}
         >
@@ -211,7 +211,7 @@ export default function Settings() {
           onClick={() => setActiveSubTab("devices")}
           className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
             activeSubTab === "devices"
-              ? "border-teal-500 text-teal-600 dark:text-teal-400"
+              ? "border-blue-500 text-blue-600 dark:text-blue-400"
               : "border-transparent text-slate-500 hover:text-slate-800"
           }`}
         >
@@ -223,7 +223,7 @@ export default function Settings() {
           onClick={() => setActiveSubTab("beds")}
           className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
             activeSubTab === "beds"
-              ? "border-teal-500 text-teal-600 dark:text-teal-400"
+              ? "border-blue-500 text-blue-600 dark:text-blue-400"
               : "border-transparent text-slate-500 hover:text-slate-800"
           }`}
         >
@@ -235,7 +235,7 @@ export default function Settings() {
           onClick={() => setActiveSubTab("users")}
           className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
             activeSubTab === "users"
-              ? "border-teal-500 text-teal-600 dark:text-teal-400"
+              ? "border-blue-500 text-blue-600 dark:text-blue-400"
               : "border-transparent text-slate-500 hover:text-slate-800"
           }`}
         >
@@ -247,7 +247,7 @@ export default function Settings() {
           onClick={() => setActiveSubTab("retention")}
           className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
             activeSubTab === "retention"
-              ? "border-teal-500 text-teal-600 dark:text-teal-400"
+              ? "border-blue-500 text-blue-600 dark:text-blue-400"
               : "border-transparent text-slate-500 hover:text-slate-800"
           }`}
         >
@@ -259,7 +259,7 @@ export default function Settings() {
           onClick={() => setActiveSubTab("security")}
           className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
             activeSubTab === "security"
-              ? "border-teal-500 text-teal-600 dark:text-teal-400"
+              ? "border-blue-500 text-blue-600 dark:text-blue-400"
               : "border-transparent text-slate-500 hover:text-slate-800"
           }`}
         >
@@ -308,7 +308,7 @@ export default function Settings() {
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2">
                 <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
                   <span>Heart Rate Lower Limit (Bradycardia):</span>
-                  <span className="font-mono text-teal-600 font-bold">{thresholdForm.hrLow} BPM</span>
+                  <span className="font-mono text-blue-600 font-bold">{thresholdForm.hrLow} BPM</span>
                 </label>
                 <input
                   type="range"
@@ -320,7 +320,7 @@ export default function Settings() {
                   onChange={(e) =>
                     setThresholdForm({ ...thresholdForm, hrLow: Number(e.target.value) })
                   }
-                  className="w-full accent-teal-600 cursor-pointer"
+                  className="w-full accent-blue-600 cursor-pointer"
                 />
                 <div className="text-[10.5px] text-slate-400 flex justify-between font-mono">
                   <span>80 BPM</span>
@@ -333,7 +333,7 @@ export default function Settings() {
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2">
                 <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
                   <span>Heart Rate Upper Limit (Tachycardia):</span>
-                  <span className="font-mono text-teal-600 font-bold">{thresholdForm.hrHigh} BPM</span>
+                  <span className="font-mono text-blue-600 font-bold">{thresholdForm.hrHigh} BPM</span>
                 </label>
                 <input
                   type="range"
@@ -345,7 +345,7 @@ export default function Settings() {
                   onChange={(e) =>
                     setThresholdForm({ ...thresholdForm, hrHigh: Number(e.target.value) })
                   }
-                  className="w-full accent-teal-600 cursor-pointer"
+                  className="w-full accent-blue-600 cursor-pointer"
                 />
                 <div className="text-[10.5px] text-slate-400 flex justify-between font-mono">
                   <span>160 BPM</span>
@@ -397,7 +397,7 @@ export default function Settings() {
                   onChange={(e) =>
                     setThresholdForm({ ...thresholdForm, persistenceSeconds: Number(e.target.value) })
                   }
-                  className="w-full accent-teal-600 cursor-pointer"
+                  className="w-full accent-blue-600 cursor-pointer"
                 />
                 <div className="text-[10.5px] text-slate-400 flex justify-between font-mono">
                   <span>2s (Strict)</span>
@@ -464,7 +464,7 @@ export default function Settings() {
               <button
                 type="submit"
                 disabled={!canEditThresholds}
-                className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white font-semibold text-xs shadow-xs flex items-center gap-2 transition-colors cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold text-xs shadow-xs flex items-center gap-2 transition-colors cursor-pointer"
               >
                 <Save size={14} />
                 <span>Save &amp; Commit Threshold Changes</span>
@@ -485,7 +485,7 @@ export default function Settings() {
                   <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
                     ESP32 Microcontroller Registry ({devices.length} Active Devices)
                   </h3>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 border border-teal-500/30">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-500/30">
                     {devices.filter((d) => d.isOnline || d.status === "ONLINE" || d.status === "AVAILABLE").length} Online
                   </span>
                   {devices.some((d) => !d.assignedBedId) && (
@@ -511,7 +511,7 @@ export default function Settings() {
                 <button
                   type="button"
                   onClick={() => setShowAddDeviceModal(true)}
-                  className="px-3.5 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
                 >
                   <Plus size={14} />
                   <span>Register ESP32 Product</span>
@@ -559,12 +559,12 @@ export default function Settings() {
 
             {/* Auto-Discovery Banner if any unassigned device appeared */}
             {devices.some((d) => d.autoDiscovered && !d.assignedBedId) && (
-              <div className="p-3 bg-teal-50/80 dark:bg-teal-950/40 border-b border-teal-200 dark:border-teal-800/60 flex items-center justify-between gap-3 text-xs text-teal-900 dark:text-teal-200">
+              <div className="p-3 bg-blue-50/80 dark:bg-blue-950/40 border-b border-blue-200 dark:border-blue-800/60 flex items-center justify-between gap-3 text-xs text-blue-900 dark:text-blue-200">
                 <div className="flex items-center gap-2">
-                  <Sparkles size={16} className="text-teal-600 animate-pulse flex-shrink-0" />
+                  <Sparkles size={16} className="text-blue-600 animate-pulse flex-shrink-0" />
                   <span>
                     <strong>New ESP32 Product Auto-Discovered:</strong> Device{" "}
-                    <code className="font-mono font-bold bg-white dark:bg-slate-800 px-1.5 py-0.5 rounded border border-teal-300 dark:border-teal-700">
+                    <code className="font-mono font-bold bg-white dark:bg-slate-800 px-1.5 py-0.5 rounded border border-blue-300 dark:border-blue-700">
                       {devices.find((d) => d.autoDiscovered && !d.assignedBedId)?.deviceId}
                     </code>{" "}
                     is transmitting telemetry. Use the dropdown below to assign it to a bed.
@@ -600,7 +600,7 @@ export default function Settings() {
                       <tr key={d.deviceId} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                         <td className="p-3 pl-4">
                           <div className="flex items-center gap-2">
-                            <Cpu size={15} className="text-teal-600 flex-shrink-0" />
+                            <Cpu size={15} className="text-blue-600 flex-shrink-0" />
                             <div>
                               <div className="font-mono font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                                 <span>{d.deviceId}</span>
@@ -628,7 +628,7 @@ export default function Settings() {
                             <select
                               value={d.assignedBedId || "UNASSIGNED"}
                               onChange={(e) => handleReassignBed(d.deviceId, e.target.value)}
-                              className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-teal-500"
+                              className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-blue-500"
                             >
                               <option value="UNASSIGNED">-- Unassigned (Spare) --</option>
                               {beds.map((b) => (
@@ -696,7 +696,7 @@ export default function Settings() {
                                   bedId: d.assignedBedId || "NICU-01",
                                 }));
                               }}
-                              className="px-2 py-1 rounded-md text-[11px] font-semibold text-teal-600 hover:bg-teal-50 dark:hover:bg-teal-950/60 transition-colors"
+                              className="px-2 py-1 rounded-md text-[11px] font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/60 transition-colors"
                             >
                               Test
                             </button>
@@ -723,7 +723,7 @@ export default function Settings() {
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <Terminal size={16} className="text-teal-600" />
+                  <Terminal size={16} className="text-blue-600" />
                   ESP32 Integration &amp; Cloud Transmission Tool
                 </h3>
                 <p className="text-xs text-slate-500">
@@ -737,7 +737,7 @@ export default function Settings() {
                   onClick={() => setActiveFirmwareTab("payload")}
                   className={`px-3 py-1 rounded-lg transition-colors ${
                     activeFirmwareTab === "payload"
-                      ? "bg-white dark:bg-slate-700 text-teal-600 shadow-xs"
+                      ? "bg-white dark:bg-slate-700 text-blue-600 shadow-xs"
                       : "text-slate-500 hover:text-slate-800"
                   }`}
                 >
@@ -747,7 +747,7 @@ export default function Settings() {
                   onClick={() => setActiveFirmwareTab("mqtt")}
                   className={`px-3 py-1 rounded-lg transition-colors ${
                     activeFirmwareTab === "mqtt"
-                      ? "bg-white dark:bg-slate-700 text-teal-600 shadow-xs"
+                      ? "bg-white dark:bg-slate-700 text-blue-600 shadow-xs"
                       : "text-slate-500 hover:text-slate-800"
                   }`}
                 >
@@ -757,7 +757,7 @@ export default function Settings() {
                   onClick={() => setActiveFirmwareTab("arduino")}
                   className={`px-3 py-1 rounded-lg transition-colors ${
                     activeFirmwareTab === "arduino"
-                      ? "bg-white dark:bg-slate-700 text-teal-600 shadow-xs"
+                      ? "bg-white dark:bg-slate-700 text-blue-600 shadow-xs"
                       : "text-slate-500 hover:text-slate-800"
                   }`}
                 >
@@ -767,7 +767,7 @@ export default function Settings() {
                   onClick={() => setActiveFirmwareTab("wiring")}
                   className={`px-3 py-1 rounded-lg transition-colors ${
                     activeFirmwareTab === "wiring"
-                      ? "bg-white dark:bg-slate-700 text-teal-600 shadow-xs"
+                      ? "bg-white dark:bg-slate-700 text-blue-600 shadow-xs"
                       : "text-slate-500 hover:text-slate-800"
                   }`}
                 >
@@ -779,13 +779,13 @@ export default function Settings() {
             {/* HiveMQ MQTT Tab */}
             {activeFirmwareTab === "mqtt" && (
               <div className="space-y-3 text-xs">
-                <div className="p-3 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 text-teal-900 dark:text-teal-200 flex items-start gap-2.5">
+                <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 flex items-start gap-2.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 mt-1 animate-pulse flex-shrink-0" />
                   <div>
                     <strong className="block text-slate-900 dark:text-slate-100 mb-0.5">
                       HiveMQ MQTT Ingestion Engine is Active &amp; Connected
                     </strong>
-                    The backend server subscribes to <code className="font-mono bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-teal-300 dark:border-teal-700">nicu/telemetry/#</code> over MQTT port 1883. Telemetry sent by any ESP32 is parsed in real time, checked against safety thresholds, saved to MongoDB Atlas, and reflected on the live dashboard.
+                    The backend server subscribes to <code className="font-mono bg-white dark:bg-slate-800 px-1 py-0.5 rounded border border-blue-300 dark:border-blue-700">nicu/telemetry/#</code> over MQTT port 1883. Telemetry sent by any ESP32 is parsed in real time, checked against safety thresholds, saved to MongoDB Atlas, and reflected on the live dashboard.
                   </div>
                 </div>
 
@@ -799,7 +799,7 @@ export default function Settings() {
 
                   <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 space-y-1.5 font-mono">
                     <div className="text-slate-400 text-[11px] font-sans">Publish Topic</div>
-                    <div className="text-teal-600 dark:text-teal-400 font-bold">nicu/telemetry/&lt;DEVICE_ID&gt;</div>
+                    <div className="text-blue-600 dark:text-blue-400 font-bold">nicu/telemetry/&lt;DEVICE_ID&gt;</div>
                     <div className="text-slate-400 text-[11px] font-sans pt-1">Example Topic</div>
                     <div className="text-slate-800 dark:text-slate-200 font-bold">nicu/telemetry/ESP32-NICU-01</div>
                   </div>
@@ -923,13 +923,13 @@ void loop() {
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
                     <tr>
                       <td className="p-2">MAX30102 / TMP117</td>
-                      <td className="p-2 text-teal-600 font-bold">GPIO 21</td>
+                      <td className="p-2 text-blue-600 font-bold">GPIO 21</td>
                       <td className="p-2">I²C SDA</td>
                       <td className="p-2 font-sans text-slate-500">Shared bidirectional serial data line (4.7k pull-up)</td>
                     </tr>
                     <tr>
                       <td className="p-2">MAX30102 / TMP117</td>
-                      <td className="p-2 text-teal-600 font-bold">GPIO 22</td>
+                      <td className="p-2 text-blue-600 font-bold">GPIO 22</td>
                       <td className="p-2">I²C SCL</td>
                       <td className="p-2 font-sans text-slate-500">Shared serial clock line (400 kHz standard)</td>
                     </tr>
@@ -952,18 +952,18 @@ void loop() {
           </div>
 
           {/* Interactive Live REST Ingestion Tester */}
-          <div className="clinical-card p-5 space-y-4 bg-gradient-to-br from-slate-50/70 to-teal-50/30 dark:from-slate-900/60 dark:to-teal-950/20">
+          <div className="clinical-card p-5 space-y-4 bg-gradient-to-br from-slate-50/70 to-blue-50/30 dark:from-slate-900/60 dark:to-blue-950/20">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <Radio size={16} className="text-teal-600 animate-pulse" />
+                  <Radio size={16} className="text-blue-600 animate-pulse" />
                   Live REST Ingestion Tester (Send Simulated Telemetry from Any ESP32)
                 </h3>
                 <p className="text-xs text-slate-500">
                   Simulate live HTTP POST transmissions directly to the backend to test threshold triggers &amp; waveforms
                 </p>
               </div>
-              <span className="text-[11px] font-mono text-teal-600 font-bold px-2 py-0.5 rounded bg-white dark:bg-slate-800 border border-teal-500/30">
+              <span className="text-[11px] font-mono text-blue-600 font-bold px-2 py-0.5 rounded bg-white dark:bg-slate-800 border border-blue-500/30">
                 POST /api/telemetry
               </span>
             </div>
@@ -1055,7 +1055,7 @@ void loop() {
                   type="button"
                   disabled={isSendingTest}
                   onClick={handleSendTestTelemetry}
-                  className="w-full py-1.5 px-3 rounded-lg bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  className="w-full py-1.5 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <Send size={13} className={isSendingTest ? "animate-spin" : ""} />
                   <span>{isSendingTest ? "Transmitting..." : "Send HTTP"}</span>
@@ -1094,7 +1094,7 @@ void loop() {
                 className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2"
               >
                 <div className="flex justify-between items-center">
-                  <span className="font-mono font-bold text-teal-600 text-sm">{b.bedId}</span>
+                  <span className="font-mono font-bold text-blue-600 text-sm">{b.bedId}</span>
                   <span className="font-mono text-slate-400">{b.deviceId}</span>
                 </div>
                 <div className="text-slate-700 dark:text-slate-200 font-semibold">
@@ -1266,7 +1266,7 @@ void loop() {
               >
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-bold text-teal-600">{log.id}</span>
+                    <span className="font-bold text-blue-600">{log.id}</span>
                     <span className="text-slate-300 dark:text-slate-700">·</span>
                     <span className="font-semibold text-slate-800 dark:text-slate-200">
                       {log.actor} ({log.role})
@@ -1293,7 +1293,7 @@ void loop() {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400">
+                <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400">
                   <Cpu size={20} />
                 </div>
                 <div>
@@ -1325,7 +1325,7 @@ void loop() {
                   placeholder="e.g. ESP32-NICU-07"
                   value={newDeviceForm.deviceId}
                   onChange={(e) => setNewDeviceForm({ ...newDeviceForm, deviceId: e.target.value.toUpperCase() })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-teal-500"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-blue-500"
                 />
                 <p className="text-[10.5px] text-slate-400 mt-1">
                   Must match the <code>deviceId</code> configured in the ESP32 Arduino sketch.
@@ -1341,7 +1341,7 @@ void loop() {
                   placeholder="e.g. Mobile Emergency Cot Node"
                   value={newDeviceForm.deviceLabel}
                   onChange={(e) => setNewDeviceForm({ ...newDeviceForm, deviceLabel: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-teal-500"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-blue-500"
                 />
               </div>
 
@@ -1353,7 +1353,7 @@ void loop() {
                   <select
                     value={newDeviceForm.model}
                     onChange={(e) => setNewDeviceForm({ ...newDeviceForm, model: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-teal-500"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-blue-500"
                   >
                     <option value="ESP32-S3 DevKitC-1">ESP32-S3 DevKitC-1 (Dual-Core)</option>
                     <option value="ESP32-C3 Mini">ESP32-C3 Mini (RISC-V)</option>
@@ -1370,7 +1370,7 @@ void loop() {
                   <select
                     value={newDeviceForm.assignedBedId}
                     onChange={(e) => setNewDeviceForm({ ...newDeviceForm, assignedBedId: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-teal-500"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-blue-500"
                   >
                     <option value="">-- Unassigned (Spare Node) --</option>
                     {beds.map((b) => (
@@ -1392,7 +1392,7 @@ void loop() {
                     placeholder="24:6F:28:AB:12:07"
                     value={newDeviceForm.macAddress}
                     onChange={(e) => setNewDeviceForm({ ...newDeviceForm, macAddress: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-teal-500"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-blue-500"
                   />
                 </div>
 
@@ -1405,7 +1405,7 @@ void loop() {
                     placeholder="v2.1.4-esp32s3"
                     value={newDeviceForm.firmwareVersion}
                     onChange={(e) => setNewDeviceForm({ ...newDeviceForm, firmwareVersion: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-teal-500"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -1421,7 +1421,7 @@ void loop() {
                 <button
                   type="submit"
                   disabled={isRegistering}
-                  className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white font-semibold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
                 >
                   <Save size={14} />
                   <span>{isRegistering ? "Saving to MongoDB..." : "Register Product"}</span>

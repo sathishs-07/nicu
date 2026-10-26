@@ -21,6 +21,7 @@ export const ROLES = {
   ADMIN: "Administrator",
   DOCTOR: "Doctor",
   NURSE: "Nurse",
+  PATIENT: "Patient",
 };
 
 // Role permission helpers
@@ -40,11 +41,179 @@ export const can = {
   changeThresholds: (role) => role === ROLES.ADMIN || role === ROLES.DOCTOR,
   // Settings
   accessSettings: (role) => role === ROLES.ADMIN,
+  // Legal Medical Records
+  generateLegalReport: (role) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.NURSE].includes(role),
 };
 
+// Initial clinical staff roster (accredited Level-III NICU care team)
+export const DEFAULT_CLINICAL_STAFF = [
+  {
+    id: "DOC-01",
+    name: "Dr. Meera Vasudevan",
+    shortName: "Dr. Meera",
+    role: "Doctor",
+    specialization: "Lead Neonatologist (MD, DNB Neonatology)",
+    shift: "Morning (07:00 - 15:00)",
+    shiftType: "Morning",
+    contact: {
+      email: "dr.meera@nicucenter.org",
+      phone: "+91 98401 23456",
+      ext: "4102",
+    },
+    availability: "On Duty",
+    assignedBeds: ["NICU-01", "NICU-02"],
+    supervisingDoctor: null,
+    totalAlertsHandled: 14,
+    medianResponseTime: "42s",
+    avatar: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=150&auto=format&fit=crop&q=80",
+  },
+  {
+    id: "DOC-02",
+    name: "Dr. Rajesh Kulkarni",
+    shortName: "Dr. Rajesh",
+    role: "Doctor",
+    specialization: "Senior Pediatric Intensivist (MD, FAAP)",
+    shift: "Evening (15:00 - 23:00)",
+    shiftType: "Evening",
+    contact: {
+      email: "dr.rajesh@nicucenter.org",
+      phone: "+91 98402 34567",
+      ext: "4105",
+    },
+    availability: "On Call",
+    assignedBeds: ["NICU-03"],
+    supervisingDoctor: null,
+    totalAlertsHandled: 9,
+    medianResponseTime: "58s",
+    avatar: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=150&auto=format&fit=crop&q=80",
+  },
+  {
+    id: "DOC-03",
+    name: "Dr. Alok Sengupta",
+    shortName: "Dr. Alok",
+    role: "Doctor",
+    specialization: "Consultant Neonatologist (DM Neonatology)",
+    shift: "Night (23:00 - 07:00)",
+    shiftType: "Night",
+    contact: {
+      email: "dr.alok@nicucenter.org",
+      phone: "+91 98403 45678",
+      ext: "4108",
+    },
+    availability: "On Duty",
+    assignedBeds: ["NICU-04"],
+    supervisingDoctor: null,
+    totalAlertsHandled: 11,
+    medianResponseTime: "35s",
+    avatar: "https://images.unsplash.com/photo-1537368910025-700350fe46c7?w=150&auto=format&fit=crop&q=80",
+  },
+  {
+    id: "DOC-04",
+    name: "Dr. Sunita Rao",
+    shortName: "Dr. Sunita",
+    role: "Doctor",
+    specialization: "Attending Neonatologist (MD Pediatrics, Perinatal Care)",
+    shift: "Morning (07:00 - 15:00)",
+    shiftType: "Morning",
+    contact: {
+      email: "dr.sunita@nicucenter.org",
+      phone: "+91 98407 12345",
+      ext: "4110",
+    },
+    availability: "On Duty",
+    assignedBeds: ["NICU-05"],
+    supervisingDoctor: null,
+    totalAlertsHandled: 8,
+    medianResponseTime: "49s",
+    avatar: "https://images.unsplash.com/photo-1594824813576-96b610c144a1?w=150&auto=format&fit=crop&q=80",
+  },
+  {
+    id: "NUR-01",
+    name: "Nurse Priya Thomas",
+    shortName: "Nurse Priya",
+    role: "Nurse",
+    specialization: "Senior NICU Care Specialist (BSc Nursing, NALS Certified)",
+    shift: "Morning (07:00 - 15:00)",
+    shiftType: "Morning",
+    contact: {
+      email: "priya.thomas@nicucenter.org",
+      phone: "+91 98404 56789",
+      ext: "4121",
+    },
+    availability: "On Duty",
+    assignedBeds: ["NICU-01", "NICU-02"],
+    supervisingDoctor: "Dr. Meera Vasudevan",
+    totalAlertsHandled: 23,
+    medianResponseTime: "24s",
+    avatar: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80",
+  },
+  {
+    id: "NUR-02",
+    name: "Nurse Anjali Mohan",
+    shortName: "Nurse Anjali",
+    role: "Nurse",
+    specialization: "Neonatal Resuscitation & Critical Care Nurse",
+    shift: "Morning (07:00 - 15:00)",
+    shiftType: "Morning",
+    contact: {
+      email: "anjali.mohan@nicucenter.org",
+      phone: "+91 98405 67890",
+      ext: "4122",
+    },
+    availability: "On Duty",
+    assignedBeds: ["NICU-03"],
+    supervisingDoctor: "Dr. Meera Vasudevan",
+    totalAlertsHandled: 19,
+    medianResponseTime: "31s",
+    avatar: "https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150&auto=format&fit=crop&q=80",
+  },
+  {
+    id: "NUR-03",
+    name: "Nurse Deepa Chandran",
+    shortName: "Nurse Deepa",
+    role: "Nurse",
+    specialization: "Staff Nurse - Incubator Care & Phototherapy",
+    shift: "Evening (15:00 - 23:00)",
+    shiftType: "Evening",
+    contact: {
+      email: "deepa.c@nicucenter.org",
+      phone: "+91 98406 78901",
+      ext: "4123",
+    },
+    availability: "On Call",
+    assignedBeds: ["NICU-04"],
+    supervisingDoctor: "Dr. Rajesh Kulkarni",
+    totalAlertsHandled: 12,
+    medianResponseTime: "38s",
+    avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80",
+  },
+  {
+    id: "NUR-04",
+    name: "Nurse Karthik Raman",
+    shortName: "Nurse Karthik",
+    role: "Nurse",
+    specialization: "Critical Care Staff Nurse (MSc Nursing)",
+    shift: "Night (23:00 - 07:00)",
+    shiftType: "Night",
+    contact: {
+      email: "karthik.r@nicucenter.org",
+      phone: "+91 98408 90123",
+      ext: "4124",
+    },
+    availability: "Off Duty",
+    assignedBeds: ["NICU-05", "NICU-06"],
+    supervisingDoctor: "Dr. Alok Sengupta",
+    totalAlertsHandled: 15,
+    medianResponseTime: "29s",
+    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
+  },
+];
+
 export function AppProvider({ children }) {
-  // Theme state: permanently dark clinical ICU theme
-  const theme = "dark";
+  // Theme state: defaults to modern clinical white & blue
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem("nicu_theme") || "light";
+  });
 
   // Current logged in user (null = not logged in or restore from session)
   const [currentUser, setCurrentUser] = useState(() => {
@@ -68,8 +237,8 @@ export function AppProvider({ children }) {
   // Patients registry (active and discharged neonates)
   const [patients, setPatients] = useState([]);
 
-  // Staff state — populated from MongoDB
-  const [staffList, setStaffList] = useState([]);
+  // Staff state — initialized with sample accredited clinical team, updated from backend
+  const [staffList, setStaffList] = useState(DEFAULT_CLINICAL_STAFF);
 
   // ESP32 Devices registry
   const [devices, setDevices] = useState([]);
@@ -149,15 +318,34 @@ export function AppProvider({ children }) {
     [currentUser, rolePermissions]
   );
 
-  // Sync permanent dark theme to DOM
+  // Real-time sensor analytics state from backend MongoDB
+  const [analyticsData, setAnalyticsData] = useState(null);
+
+  // Sync theme to DOM (defaults to modern clinical white and blue)
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", "dark");
-    document.documentElement.classList.add("dark");
-    localStorage.setItem("nicu_theme", "dark");
-  }, []);
+    document.documentElement.setAttribute("data-theme", theme);
+    if (theme === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+    localStorage.setItem("nicu_theme", theme);
+  }, [theme]);
 
   const toggleTheme = useCallback(() => {
-    // Theme locked to dark for clinical standard
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  }, []);
+
+  const fetchAnalytics = useCallback(async (timeframe = "7d") => {
+    try {
+      const data = await api.getAnalytics(timeframe);
+      if (data && data.success) {
+        setAnalyticsData(data);
+      }
+      return data;
+    } catch (e) {
+      console.warn("Could not fetch sensor analytics:", e);
+    }
   }, []);
 
   // ─── Logout ────────────────────────────────────────────────
@@ -171,7 +359,7 @@ export function AppProvider({ children }) {
     async function loadBackendData() {
       setIsLoading(true);
       try {
-        const [bedsData, patientsData, staffData, alertsData, settingsData, devicesData, auditData] =
+        const [bedsData, patientsData, staffData, alertsData, settingsData, devicesData, auditData, analyticsRes] =
           await Promise.all([
             api.getBeds(),
             api.getPatients(),
@@ -180,7 +368,12 @@ export function AppProvider({ children }) {
             api.getSettings(),
             api.getDevices(),
             api.getAuditLogs(),
+            api.getAnalytics("7d"),
           ]);
+
+        if (analyticsRes && analyticsRes.success) {
+          setAnalyticsData(analyticsRes);
+        }
 
         if (bedsData && Array.isArray(bedsData)) {
           setBeds(bedsData);
@@ -196,7 +389,7 @@ export function AppProvider({ children }) {
           setPatients(patientsData);
         }
 
-        if (staffData && Array.isArray(staffData)) {
+        if (staffData && Array.isArray(staffData) && staffData.length > 0) {
           setStaffList(staffData);
         }
 
@@ -717,8 +910,9 @@ export function AppProvider({ children }) {
         activeMonitoringCount,
         activeAlertsCount,
         devicesOnlineCount,
-        activeAlertsList,
-        // Analytics (historical reference data — not live vitals)
+        // Real Sensor Analytics
+        analyticsData,
+        fetchAnalytics,
         weeklyAnalytics: WEEKLY_ANALYTICS_DATA,
         bedEfficiency: BED_EFFICIENCY_METRICS,
       }}

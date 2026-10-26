@@ -1,6 +1,6 @@
 // =============================================================
-// Sidebar.jsx — Deep Navy Clinical Sidebar
-// 5 Core Navigation Sections with Teal Active Indicators
+// Sidebar.jsx — Modern Clinical White & Blue Sidebar
+// Core navigation with clean active indicators & status badges
 // =============================================================
 
 import { useState } from "react";
@@ -17,25 +17,31 @@ import {
   ShieldAlert,
   Activity,
   HeartPulse,
+  Radio,
 } from "lucide-react";
-import { useApp } from "../context/AppContext";
+import { useApp, ROLES } from "../context/AppContext";
 
 const NAV_ITEMS = [
-  { to: "/",          icon: LayoutDashboard, label: "Dashboard", end: true, moduleKey: "dashboard" },
-  { to: "/patients",  icon: Baby,            label: "Patients",            moduleKey: "patients" },
-  { to: "/doctors",   icon: Users,           label: "Doctors",             moduleKey: "doctors" },
-  { to: "/alerts",    icon: Bell,            label: "Alert Log", hasBadge: true, moduleKey: "alerts" },
-  { to: "/analytics", icon: BarChart3,       label: "Analytics",           moduleKey: "analytics" },
-  { to: "/settings",  icon: Settings,        label: "Settings",            moduleKey: "settings" },
+  { to: "/",          icon: LayoutDashboard, label: "Ward Overview",       end: true, moduleKey: "dashboard" },
+  { to: "/patients",  icon: Baby,            label: "Patient Records",     moduleKey: "patients" },
+  { to: "/doctors",   icon: Users,           label: "Clinical Care Team",  moduleKey: "doctors" },
+  { to: "/alerts",    icon: Bell,            label: "Critical Alerts",     hasBadge: true, moduleKey: "alerts" },
+  { to: "/analytics", icon: BarChart3,       label: "Sensor Analytics",    moduleKey: "analytics" },
+  { to: "/settings",  icon: Settings,        label: "System Settings",     moduleKey: "settings" },
 ];
 
 export default function Sidebar({ onWidthChange }) {
   const [collapsed, setCollapsed] = useState(false);
-  const { activeAlertsCount, devicesOnlineCount, totalBeds, canAccess } = useApp();
+  const { activeAlertsCount, devicesOnlineCount, totalBeds, canAccess, currentUser } = useApp();
 
-  const visibleNavItems = NAV_ITEMS.filter((item) =>
-    item.moduleKey && canAccess ? canAccess(item.moduleKey) : true
-  );
+  const isParent = currentUser?.role === ROLES.PATIENT;
+
+  const visibleNavItems = NAV_ITEMS.filter((item) => {
+    if (isParent) {
+      return ["dashboard", "patients", "doctors"].includes(item.moduleKey);
+    }
+    return item.moduleKey && canAccess ? canAccess(item.moduleKey) : true;
+  });
 
   const toggleCollapse = () => {
     const next = !collapsed;
@@ -45,24 +51,24 @@ export default function Sidebar({ onWidthChange }) {
 
   return (
     <aside
-      className="fixed left-0 bottom-0 z-40 flex flex-col transition-all duration-300 ease-in-out"
+      className="fixed left-0 bottom-0 z-40 flex flex-col transition-all duration-300 ease-in-out shadow-xs"
       style={{
-        top: "60px", // below header
-        width: collapsed ? "68px" : "230px",
+        top: "60px",
+        width: collapsed ? "68px" : "240px",
         backgroundColor: "var(--sidebar-bg)",
         borderRight: "1px solid var(--sidebar-border)",
       }}
     >
-      {/* Sidebar Control Bar — Clean, no duplicate NeoCare logo */}
-      <div className="flex items-center justify-between px-3.5 py-3 border-b border-slate-200 dark:border-slate-800/80">
+      {/* Sidebar Control Bar */}
+      <div className="flex items-center justify-between px-3.5 py-3 border-b border-slate-200 dark:border-slate-800">
         {!collapsed && (
-          <span className="text-[11px] font-semibold tracking-wider uppercase text-slate-400 dark:text-slate-500 font-mono">
-            Navigation
+          <span className="text-[11px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500 font-mono">
+            Clinical Navigation
           </span>
         )}
         <button
           onClick={toggleCollapse}
-          className={`text-slate-400 hover:text-slate-700 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors ${
+          className={`text-slate-400 hover:text-slate-700 dark:hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer ${
             collapsed ? "mx-auto" : ""
           }`}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -73,8 +79,8 @@ export default function Sidebar({ onWidthChange }) {
 
       {/* Navigation Label */}
       {!collapsed && (
-        <div className="px-5 pt-4 pb-1 text-[10px] font-semibold tracking-wider uppercase text-slate-400 dark:text-slate-500">
-          Core Navigation
+        <div className="px-5 pt-4 pb-1 text-[10px] font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500">
+          Main Modules
         </div>
       )}
 
@@ -91,27 +97,19 @@ export default function Sidebar({ onWidthChange }) {
               <div
                 className={`relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 ${
                   isActive
-                    ? "bg-teal-50 dark:bg-teal-500/15 text-teal-700 dark:text-teal-400 font-semibold shadow-xs"
-                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/40"
+                    ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-bold shadow-xs border-l-4 border-blue-600"
+                    : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                {/* Active Teal Left Border Bar Indicator */}
-                {isActive && (
-                  <div
-                    className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full"
-                    style={{ backgroundColor: "var(--sidebar-active-indicator)" }}
-                  />
-                )}
-
                 <Icon
-                  size={20}
+                  size={19}
                   className={`flex-shrink-0 transition-colors ${
-                    isActive ? "text-teal-600 dark:text-teal-400" : "text-slate-500 dark:text-slate-400 group-hover:text-slate-800 dark:group-hover:text-slate-200"
+                    isActive ? "text-blue-600 dark:text-blue-400" : "text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-300"
                   }`}
                 />
 
                 {!collapsed && (
-                  <span className="text-[13px] tracking-wide truncate flex-1">
+                  <span className="text-[12.5px] tracking-tight truncate flex-1">
                     {label}
                   </span>
                 )}
@@ -121,8 +119,8 @@ export default function Sidebar({ onWidthChange }) {
                   <span
                     className={`flex items-center justify-center font-mono font-bold rounded-full ${
                       collapsed
-                        ? "absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 animate-ping"
-                        : "px-2 py-0.5 text-[11px] bg-red-500 text-white shadow-xs alert-pulse-red"
+                        ? "absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-rose-500 animate-ping"
+                        : "px-2 py-0.5 text-[10.5px] bg-rose-600 text-white shadow-xs alert-pulse-red"
                     }`}
                   >
                     {!collapsed && activeAlertsCount}
@@ -136,28 +134,35 @@ export default function Sidebar({ onWidthChange }) {
 
       {/* Bed Telemetry Status Widget */}
       {!collapsed ? (
-        <div className="p-3 mx-2.5 mb-3 rounded-xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/90">
+        <div className="p-3 mx-2.5 mb-3 rounded-xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800">
           <div className="flex items-center justify-between text-[11px] font-mono text-slate-700 dark:text-slate-300 mb-1.5">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-teal-500 animate-ping inline-block" />
-              ESP32 Telemetry
+            <span className="flex items-center gap-1.5 font-bold">
+              <Radio size={12} className="text-blue-600 animate-pulse" />
+              <span>Telemetry Stations</span>
             </span>
-            <span className="text-teal-600 dark:text-teal-400 font-bold">{devicesOnlineCount}/{totalBeds} Online</span>
+            <span className="font-extrabold text-blue-600 dark:text-blue-400">
+              {devicesOnlineCount}/{totalBeds} Active
+            </span>
           </div>
           <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
             <div
-              className="bg-teal-500 h-full rounded-full transition-all duration-500"
-              style={{ width: `${totalBeds > 0 ? (devicesOnlineCount / totalBeds) * 100 : 0}%` }}
+              className="bg-blue-600 h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${totalBeds > 0 ? (devicesOnlineCount / totalBeds) * 100 : 0}%`,
+              }}
             />
           </div>
-          <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 flex justify-between">
-            <span>NICU Ward 3B</span>
-            <span className="text-teal-600 dark:text-teal-400 font-semibold">HiveMQ / REST</span>
+          <div className="flex items-center justify-between text-[9.5px] text-slate-400 mt-1.5 font-mono">
+            <span>ESP32 Hardware Stream</span>
+            <span className="text-emerald-600 font-bold">Encrypted</span>
           </div>
         </div>
       ) : (
-        <div className="p-2 flex justify-center mb-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-teal-500" title="ESP32 Telemetry Active" />
+        <div className="p-2 mb-3 text-center">
+          <div
+            className="w-2.5 h-2.5 mx-auto rounded-full bg-emerald-500 animate-pulse"
+            title={`${devicesOnlineCount}/${totalBeds} online`}
+          />
         </div>
       )}
     </aside>

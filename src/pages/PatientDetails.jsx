@@ -44,10 +44,12 @@ import {
   ReferenceLine,
 } from "recharts";
 import MedicalPPGWaveform from "../components/MedicalPPGWaveform";
+import LegalMedicalReportModal from "../components/LegalMedicalReportModal";
 import { useApp } from "../context/AppContext";
 import { api } from "../services/api";
 
 export default function PatientDetails() {
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const { patientId } = useParams();
   const navigate = useNavigate();
   const {
@@ -168,7 +170,7 @@ export default function PatientDetails() {
           </button>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-500/30">
+              <span className="font-mono text-xs font-semibold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-500/30">
                 BED {bed.bedId}
               </span>
               <span className="text-slate-300 dark:text-slate-700">·</span>
@@ -207,30 +209,20 @@ export default function PatientDetails() {
             <span>Export CSV</span>
           </button>
           <button
-            onClick={() => window.print()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow-md transition-colors"
+            onClick={() => setIsReportModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-md transition-colors cursor-pointer"
           >
             <FileText size={14} />
-            <span>Export Clinical PDF / Print</span>
+            <span>Export Legal Medical PDF</span>
           </button>
-          <button
-            onClick={async () => {
-              const confirmMsg = `Are you sure you want to discharge "${bed.babyName}" from ${bed.bedId}?\nThis will unbind ESP32 device (${bed.deviceId || 'unassigned'}) and release the bed station.`;
-              if (window.confirm(confirmMsg)) {
-                try {
-                  await deleteBed(bed.bedId);
-                  navigate("/");
-                } catch (err) {
-                  alert(err.message || "Failed to discharge neonate");
-                }
-              }
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs font-medium hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
-            title="Discharge patient and release bed station"
+          <Link
+            to={`/patients?action=discharge&patientId=${encodeURIComponent(bed.patientId)}`}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs font-semibold hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+            title="Complete standard clinical discharge protocol on Patients Registry"
           >
             <UserMinus size={14} />
-            <span>Discharge Neonate</span>
-          </button>
+            <span>Clinical Discharge</span>
+          </Link>
         </div>
       </div>
 
@@ -268,7 +260,7 @@ export default function PatientDetails() {
         </div>
         <div>
           <div className="text-slate-400 text-[11px]">Handling Doctor</div>
-          <div className="font-bold text-teal-600 dark:text-teal-400 mt-0.5">
+          <div className="font-bold text-blue-600 dark:text-blue-400 mt-0.5">
             {bed.assignedDoctorName}
           </div>
         </div>
@@ -281,7 +273,7 @@ export default function PatientDetails() {
               setCustomDevId("");
               setShowDeviceModal(true);
             }}
-            className="mt-0.5 font-mono font-bold text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1"
+            className="mt-0.5 font-mono font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
             title="Click to assign or swap ESP32"
           >
             <span>{bed.deviceId || "Standby"}</span>
@@ -319,7 +311,7 @@ export default function PatientDetails() {
 
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-800 font-mono">
             <span>{isLiveConnected ? "24h Range: 118 – 174" : "Sensor Standby"}</span>
-            <span className={isLiveConnected ? "text-teal-600 dark:text-teal-400 font-medium" : "text-slate-400"}>
+            <span className={isLiveConnected ? "text-blue-600 dark:text-blue-400 font-medium" : "text-slate-400"}>
               {isLiveConnected ? "MAX30102 Stream Active" : "Awaiting ESP32"}
             </span>
           </div>
@@ -352,7 +344,7 @@ export default function PatientDetails() {
 
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-800 font-mono">
             <span>{isLiveConnected ? "24h Range: 92 – 100%" : "Pulse Oximetry Standby"}</span>
-            <span className={isLiveConnected ? "text-teal-600 dark:text-teal-400 font-medium" : "text-slate-400"}>
+            <span className={isLiveConnected ? "text-blue-600 dark:text-blue-400 font-medium" : "text-slate-400"}>
               {isLiveConnected ? "Perfusion: Good" : "Awaiting ESP32"}
             </span>
           </div>
@@ -385,7 +377,7 @@ export default function PatientDetails() {
 
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-800 font-mono">
             <span>{isLiveConnected ? "24h Range: 36.4 – 37.2°C" : "Temperature Standby"}</span>
-            <span className={isLiveConnected ? "text-teal-600 dark:text-teal-400 font-medium" : "text-slate-400"}>
+            <span className={isLiveConnected ? "text-blue-600 dark:text-blue-400 font-medium" : "text-slate-400"}>
               {isLiveConnected ? "TMP117 I2C Active" : "Awaiting ESP32"}
             </span>
           </div>
@@ -443,7 +435,7 @@ export default function PatientDetails() {
               onClick={() => setTimeRange("15m")}
               className={`px-3 py-1 rounded-lg transition-colors ${
                 timeRange === "15m"
-                  ? "bg-white dark:bg-slate-700 text-teal-600 dark:text-teal-300 shadow-xs font-semibold"
+                  ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-300 shadow-xs font-semibold"
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
@@ -453,7 +445,7 @@ export default function PatientDetails() {
               onClick={() => setTimeRange("1h")}
               className={`px-3 py-1 rounded-lg transition-colors ${
                 timeRange === "1h"
-                  ? "bg-white dark:bg-slate-700 text-teal-600 dark:text-teal-300 shadow-xs font-semibold"
+                  ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-300 shadow-xs font-semibold"
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
@@ -463,7 +455,7 @@ export default function PatientDetails() {
               onClick={() => setTimeRange("24h")}
               className={`px-3 py-1 rounded-lg transition-colors ${
                 timeRange === "24h"
-                  ? "bg-white dark:bg-slate-700 text-teal-600 dark:text-teal-300 shadow-xs font-semibold"
+                  ? "bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-300 shadow-xs font-semibold"
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
@@ -526,7 +518,7 @@ export default function PatientDetails() {
 
           {patientAlerts.length === 0 ? (
             <div className="py-8 text-center text-xs text-slate-400">
-              <CheckCircle2 size={24} className="mx-auto mb-1 text-teal-500" />
+              <CheckCircle2 size={24} className="mx-auto mb-1 text-blue-500" />
               No clinical alerts recorded for this patient.
             </div>
           ) : (
@@ -544,7 +536,7 @@ export default function PatientDetails() {
                             ? "bg-red-500 animate-ping"
                             : alert.status === "Acknowledged"
                             ? "bg-amber-500"
-                            : "bg-teal-500"
+                            : "bg-blue-500"
                         }`}
                       />
                       {alert.alertType} ({alert.alertId})
@@ -555,7 +547,7 @@ export default function PatientDetails() {
                           ? "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300"
                           : alert.status === "Acknowledged"
                           ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
-                          : "bg-teal-100 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300"
+                          : "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"
                       }`}
                     >
                       {alert.status}
@@ -581,7 +573,7 @@ export default function PatientDetails() {
                     {alert.status === "Active" && (
                       <button
                         onClick={() => acknowledgeAlert(alert.alertId)}
-                        className="px-2.5 py-1 rounded bg-teal-600 hover:bg-teal-700 text-white font-medium text-[11px] transition-colors"
+                        className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-medium text-[11px] transition-colors"
                       >
                         Acknowledge Alert
                       </button>
@@ -605,12 +597,12 @@ export default function PatientDetails() {
         <div className="clinical-card p-5 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
             <div className="flex items-center gap-2">
-              <Cpu size={18} className="text-teal-600 dark:text-teal-400" />
+              <Cpu size={18} className="text-blue-600 dark:text-blue-400" />
               <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200">
                 ESP32 Telemetry &amp; Hardware Telemetry
               </h2>
             </div>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 font-mono font-semibold">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 font-mono font-semibold">
               CONNECTED
             </span>
           </div>
@@ -631,7 +623,7 @@ export default function PatientDetails() {
               <div className="font-mono font-bold text-slate-800 dark:text-slate-200 mt-1">
                 {bed.firmwareVersion}
               </div>
-              <div className="text-[10px] text-teal-600 font-mono mt-0.5">
+              <div className="text-[10px] text-blue-600 font-mono mt-0.5">
                 OTA Up to date
               </div>
             </div>
@@ -639,7 +631,7 @@ export default function PatientDetails() {
             <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
               <div className="text-slate-400 text-[11px]">Device Battery Backup</div>
               <div className="font-mono font-bold text-slate-800 dark:text-slate-200 mt-1 flex items-center gap-1.5">
-                <Battery size={16} className="text-teal-600" />
+                <Battery size={16} className="text-blue-600" />
                 {bed.batteryPercent}%
               </div>
               <div className="text-[10px] text-slate-400 mt-0.5">
@@ -650,7 +642,7 @@ export default function PatientDetails() {
             <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
               <div className="text-slate-400 text-[11px]">Wi-Fi RSSI Signal</div>
               <div className="font-mono font-bold text-slate-800 dark:text-slate-200 mt-1 flex items-center gap-1.5">
-                <Wifi size={16} className="text-teal-600" />
+                <Wifi size={16} className="text-blue-600" />
                 {bed.rssi} dBm ({bed.signalQuality})
               </div>
               <div className="text-[10px] text-slate-400 mt-0.5">
@@ -659,8 +651,8 @@ export default function PatientDetails() {
             </div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-teal-50/60 dark:bg-teal-950/20 border border-teal-200 dark:border-teal-900/50 text-xs text-slate-700 dark:text-slate-300">
-            <div className="font-semibold text-teal-800 dark:text-teal-300 mb-1 flex items-center gap-1.5">
+          <div className="p-3.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/50 text-xs text-slate-700 dark:text-slate-300">
+            <div className="font-semibold text-blue-800 dark:text-blue-300 mb-1 flex items-center gap-1.5">
               <ShieldCheck size={14} />
               Edge Validation Active
             </div>
@@ -673,7 +665,7 @@ export default function PatientDetails() {
       <div className="clinical-card p-5 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
               <MessageSquare size={16} />
             </div>
             <div>
@@ -733,7 +725,7 @@ export default function PatientDetails() {
                 onClick={() => setNoteCategory(cat)}
                 className={`px-2 py-0.5 rounded-lg text-[11px] font-medium transition-colors ${
                   noteCategory === cat
-                    ? "bg-teal-600 text-white"
+                    ? "bg-blue-600 text-white"
                     : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-100"
                 }`}
               >
@@ -749,12 +741,12 @@ export default function PatientDetails() {
               value={newNoteText}
               onChange={(e) => setNewNoteText(e.target.value)}
               placeholder={`Add ${noteCategory.toLowerCase()} note for ${bed.babyName}...`}
-              className="flex-1 px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
+              className="flex-1 px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
               type="submit"
               disabled={isSavingNote}
-              className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-xs flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
             >
               <Send size={13} />
               <span>{isSavingNote ? "Adding..." : "Log Note"}</span>
@@ -796,7 +788,7 @@ export default function PatientDetails() {
                   <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">
                     {note.role}
                   </span>
-                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800/60 font-medium">
+                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 font-medium">
                     {note.category}
                   </span>
                 </div>
@@ -818,7 +810,7 @@ export default function PatientDetails() {
           <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
             <div className="flex items-center justify-between p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/80">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-teal-500/10 border border-teal-500/20 text-teal-600 dark:text-teal-400 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400 flex items-center justify-center">
                   <Cpu size={18} />
                 </div>
                 <div>
@@ -880,7 +872,7 @@ export default function PatientDetails() {
                 <select
                   value={selectedDevId}
                   onChange={(e) => setSelectedDevId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="UNASSIGN">-- Unbind / Release Device (Put Bed in Standby) --</option>
                   {(devices || []).map((d) => (
@@ -903,17 +895,17 @@ export default function PatientDetails() {
                     placeholder="e.g. ESP32-NICU-08"
                     value={customDevId}
                     onChange={(e) => setCustomDevId(e.target.value.toUpperCase())}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               )}
 
-              <div className="p-3 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1">
-                <div className="font-semibold text-teal-900 dark:text-teal-200 flex items-center gap-1.5">
-                  <Radio size={14} className="text-teal-600" />
+              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 space-y-1">
+                <div className="font-semibold text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                  <Radio size={14} className="text-blue-600" />
                   HiveMQ MQTT Topic for this station:
                 </div>
-                <div className="font-mono text-[11px] text-teal-800 dark:text-teal-300 select-all">
+                <div className="font-mono text-[11px] text-blue-800 dark:text-blue-300 select-all">
                   nicu/telemetry/{selectedDevId === "NEW" ? customDevId || "<DEVICE_ID>" : selectedDevId || bed.deviceId || "<DEVICE_ID>"}
                 </div>
               </div>
@@ -929,7 +921,7 @@ export default function PatientDetails() {
                 <button
                   type="submit"
                   disabled={isAssigningDev}
-                  className="px-4 py-2 rounded-xl font-semibold bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white shadow-sm transition-colors"
+                  className="px-4 py-2 rounded-xl font-semibold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white shadow-sm transition-colors"
                 >
                   {isAssigningDev ? "Saving..." : "Save Assignment"}
                 </button>
@@ -966,7 +958,7 @@ export default function PatientDetails() {
                 value={resolutionNotes}
                 onChange={(e) => setResolutionNotes(e.target.value)}
                 placeholder="e.g. Suctioned airways, baby repositioned, vitals returned to baseline."
-                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
               />
             </div>
             <div className="flex items-center justify-end gap-2 pt-2">
@@ -982,13 +974,41 @@ export default function PatientDetails() {
                   setResolveModalAlert(null);
                   setResolutionNotes("");
                 }}
-                className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-teal-600 hover:bg-teal-700 text-white shadow-xs"
+                className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs"
               >
                 Mark as Resolved
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Official Legal Medical Record & PDF Export Modal ── */}
+      {bed && (
+        <LegalMedicalReportModal
+          isOpen={isReportModalOpen}
+          onClose={() => setIsReportModalOpen(false)}
+          patient={{
+            patientId: bed.patientId,
+            babyName: bed.babyName,
+            motherName: bed.motherName,
+            gender: bed.gender,
+            bloodGroup: bed.bloodGroup,
+            gestationalAge: bed.gestationalAge,
+            birthWeight: bed.birthWeight,
+            currentWeight: bed.birthWeight,
+            diagnosis: bed.diagnosis,
+            assignedBedId: bed.bedId,
+            assignedDoctorName: bed.assignedDoctorName,
+            status: bed.status,
+            admissionDate: bed.admissionDate,
+            deviceId: bed.deviceId,
+          }}
+          bed={bed}
+          alerts={bedAlerts}
+          recentReadings={historicalReadings}
+          currentUser={currentUser}
+        />
       )}
     </div>
   );

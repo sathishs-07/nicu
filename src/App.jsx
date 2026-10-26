@@ -4,20 +4,20 @@
 // Dashboard, Doctors, Alert Log, Analytics, and Settings
 // =============================================================
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
 import Login from "./pages/Login";
 
-import Dashboard from "./pages/Dashboard";
-import Patients from "./pages/Patients";
-import PatientDetails from "./pages/PatientDetails";
-import Doctors from "./pages/Doctors";
-import AlertLog from "./pages/AlertLog";
-import Analytics from "./pages/Analytics";
-import Settings from "./pages/Settings";
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Patients = lazy(() => import("./pages/Patients"));
+const PatientDetails = lazy(() => import("./pages/PatientDetails"));
+const Doctors = lazy(() => import("./pages/Doctors"));
+const AlertLog = lazy(() => import("./pages/AlertLog"));
+const Analytics = lazy(() => import("./pages/Analytics"));
+const Settings = lazy(() => import("./pages/Settings"));
 
 import { useApp } from "./context/AppContext";
 
@@ -47,38 +47,49 @@ function AppShell() {
           minHeight: "calc(100vh - 60px)",
         }}
       >
-        <Routes>
-          {/* 1. Dashboard (Main Page) & 6-Bed Grid */}
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/dashboard" element={<Dashboard />} />
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center min-h-[50vh]">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-8 h-8 rounded-full border-2 border-blue-600 border-t-transparent animate-spin" />
+                <span className="text-xs font-mono font-medium text-slate-400">Loading Clinical Module...</span>
+              </div>
+            </div>
+          }
+        >
+          <Routes>
+            {/* 1. Dashboard (Main Page) & 6-Bed Grid */}
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Dashboard />} />
 
-          {/* 1.1 Neonatal Patients Management & Registry */}
-          <Route path="/patients" element={<Patients />} />
+            {/* 1.1 Neonatal Patients Management & Registry */}
+            <Route path="/patients" element={<Patients />} />
 
-          {/* 1.2 Patient Details Subpage */}
-          <Route path="/patients/:patientId" element={<PatientDetails />} />
+            {/* 1.2 Patient Details Subpage */}
+            <Route path="/patients/:patientId" element={<PatientDetails />} />
 
-          {/* 2. Doctors — Staff Management */}
-          <Route path="/doctors" element={<Doctors />} />
-          <Route path="/staff/:staffId" element={<Doctors />} />
+            {/* 2. Doctors — Staff Management */}
+            <Route path="/doctors" element={<Doctors />} />
+            <Route path="/staff/:staffId" element={<Doctors />} />
 
-          {/* 3. Alert Log — Event History & Response Tracking */}
-          <Route path="/alerts" element={<AlertLog />} />
-          <Route path="/alerts/:alertId" element={<AlertLog />} />
+            {/* 3. Alert Log — Event History & Response Tracking */}
+            <Route path="/alerts" element={<AlertLog />} />
+            <Route path="/alerts/:alertId" element={<AlertLog />} />
 
-          {/* 4. Analytics — Reports & Operational Insights */}
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/analytics/reports" element={<Analytics />} />
+            {/* 4. Analytics — Reports & Operational Insights */}
+            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/analytics/reports" element={<Analytics />} />
 
-          {/* 5. Settings — Complete System Configuration */}
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/settings/devices" element={<Settings />} />
-          <Route path="/settings/alert-rules" element={<Settings />} />
-          <Route path="/settings/users" element={<Settings />} />
+            {/* 5. Settings — Complete System Configuration */}
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/settings/devices" element={<Settings />} />
+            <Route path="/settings/alert-rules" element={<Settings />} />
+            <Route path="/settings/users" element={<Settings />} />
 
-          {/* Fallback Route */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+            {/* Fallback Route */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
       </main>
     </div>
   );

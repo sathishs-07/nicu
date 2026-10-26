@@ -220,6 +220,15 @@ export const SYSTEM_USERS = [
     password: "nurse@1234",
     avatar: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80",
   },
+  {
+    id: "PAT-01",
+    name: "Ramesh & Priya (Parents of Baby Ananya)",
+    shortName: "Family Portal",
+    role: "Patient",
+    username: "parent",
+    password: "parent@1234",
+    avatar: "https://images.unsplash.com/photo-1544717305-2782549b5136?w=150&auto=format&fit=crop&q=80",
+  },
 ];
 
 // ─── Main Seed Function ────────────────────────────────────────

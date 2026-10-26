@@ -196,10 +196,10 @@ export default function AlertLog() {
           <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
             Resolved
           </div>
-          <div className="text-2xl font-bold font-mono text-teal-600 dark:text-teal-400 mt-1">
+          <div className="text-2xl font-bold font-mono text-blue-600 dark:text-blue-400 mt-1">
             {resolvedCount}
           </div>
-          <div className="text-[10.5px] text-teal-600 dark:text-teal-400 font-medium">
+          <div className="text-[10.5px] text-blue-600 dark:text-blue-400 font-medium">
             Documented closures
           </div>
         </div>
@@ -228,7 +228,7 @@ export default function AlertLog() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search Alert ID, Bed, Patient..."
-            className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+            className="w-full pl-9 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
           />
         </div>
 
@@ -295,7 +295,7 @@ export default function AlertLog() {
                 setSelectedType("ALL");
                 setSearchQuery("");
               }}
-              className="text-teal-600 dark:text-teal-400 font-semibold hover:underline"
+              className="text-blue-600 dark:text-blue-400 font-semibold hover:underline"
             >
               Reset
             </button>
@@ -345,7 +345,7 @@ export default function AlertLog() {
                       <div className="font-semibold text-slate-800 dark:text-slate-200">
                         {alert.babyName}
                       </div>
-                      <div className="font-mono text-[11px] text-teal-600 dark:text-teal-400">
+                      <div className="font-mono text-[11px] text-blue-600 dark:text-blue-400">
                         {alert.bedId}
                       </div>
                     </td>
@@ -401,7 +401,7 @@ export default function AlertLog() {
                             ? "bg-red-50 text-red-700 dark:bg-red-950/60 dark:text-red-300 border border-red-300"
                             : alert.status === "Acknowledged"
                             ? "bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300"
-                            : "bg-teal-50 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300 border border-teal-300"
+                            : "bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300"
                         }`}
                       >
                         <span
@@ -410,7 +410,7 @@ export default function AlertLog() {
                               ? "bg-red-500 animate-ping"
                               : alert.status === "Acknowledged"
                               ? "bg-amber-500"
-                              : "bg-teal-500"
+                              : "bg-blue-500"
                           }`}
                         />
                         {alert.status}
@@ -420,7 +420,7 @@ export default function AlertLog() {
                       {alert.status === "Active" && (
                         <button
                           onClick={() => acknowledgeAlert(alert.alertId)}
-                          className="px-2 py-1 rounded bg-teal-600 hover:bg-teal-700 text-white font-medium text-[11px] transition-colors"
+                          className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-medium text-[11px] transition-colors"
                         >
                           Ack
                         </button>
@@ -472,7 +472,7 @@ export default function AlertLog() {
               <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-1.5">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Bed Station:</span>
-                  <span className="font-mono font-bold text-teal-600">{selectedAlert.bedId}</span>
+                  <span className="font-mono font-bold text-blue-600">{selectedAlert.bedId}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Patient:</span>
@@ -551,7 +551,7 @@ export default function AlertLog() {
                   value={resolutionNoteInput}
                   onChange={(e) => setResolutionNoteInput(e.target.value)}
                   placeholder="Document actions taken (e.g. oxygen titrating, probe re-attached, clinician intervention)..."
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
             </div>
@@ -589,7 +589,7 @@ export default function AlertLog() {
                       setSelectedAlert(null);
                       setResolutionNoteInput("");
                     }}
-                    className="px-4 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-xs transition-colors"
+                    className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition-colors"
                   >
                     Mark Resolved
                   </button>

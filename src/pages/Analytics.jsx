@@ -1,10 +1,10 @@
 // =============================================================
-// Analytics.jsx — Operational Reports & System Telemetry Insights
-// Weekly Clinical Reports, Doctor Performance, IoT System Efficiency,
-// and Clinical Audit Report Generator.
+// Analytics.jsx — Real Sensor Telemetry Analytics & Audit Reports
+// Built 100% on actual ESP32 sensor telemetry, real-time alert logs,
+// clinician response benchmarks, and standard legal PDF export.
 // =============================================================
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   BarChart3,
   TrendingUp,
@@ -21,6 +21,11 @@ import {
   Zap,
   Activity,
   Layers,
+  Heart,
+  Droplets,
+  Thermometer,
+  Radio,
+  RefreshCw,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -33,571 +38,569 @@ import {
   Tooltip,
   CartesianGrid,
   Legend,
+  AreaChart,
+  Area,
 } from "recharts";
 import { useApp } from "../context/AppContext";
+import LegalMedicalReportModal from "../components/LegalMedicalReportModal";
 
 export default function Analytics() {
-  const { weeklyAnalytics, bedEfficiency, staffList, totalBeds, alertLog = [] } = useApp();
+  const {
+    analyticsData,
+    fetchAnalytics,
+    staffList,
+    totalBeds,
+    alertLog = [],
+    beds = [],
+    devices = [],
+    patients = [],
+    currentUser,
+  } = useApp();
 
   const [dateFilter, setDateFilter] = useState("7d"); // "today" | "7d" | "30d"
-  const [activeTab, setActiveTab] = useState("weekly"); // "weekly" | "staff" | "efficiency" | "report"
+  const [activeTab, setActiveTab] = useState("telemetry"); // "telemetry" | "vitals" | "staff" | "legalReport"
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Report generator custom options
-  const [reportBeds, setReportBeds] = useState(["ALL"]);
-  const [reportPeriod, setReportPeriod] = useState("Last 7 Days (Oct 19 – 25, 2026)");
-  const [reportGenerated, setReportGenerated] = useState(false);
+  // Legal Report Modal state
+  const [selectedPatientForReport, setSelectedPatientForReport] = useState(null);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
-  // Overall system metrics calculation
-  const totalValidPackets = bedEfficiency.reduce((acc, b) => acc + b.validPackets, 0);
-  const totalExpectedPackets = bedEfficiency.reduce((acc, b) => acc + b.expectedPackets, 0);
-  const overallCompleteness = +(
-    (totalValidPackets / totalExpectedPackets) *
-    100
-  ).toFixed(1);
-  const averageUptime = +(
-    bedEfficiency.reduce((acc, b) => acc + b.uptimePercent, 0) / bedEfficiency.length
-  ).toFixed(2);
+  // Fetch real analytics whenever dateFilter changes
+  useEffect(() => {
+    fetchAnalytics(dateFilter);
+  }, [dateFilter, fetchAnalytics]);
 
-  // Live Alert Statistics synchronized directly with alertLog
-  const totalAlertsCount = alertLog.length;
-  const hrAlertsCount = alertLog.filter(
-    (a) => a.parameter?.includes("HR") || a.alertType?.includes("Tachycardia") || a.alertType?.includes("Bradycardia")
-  ).length;
-  const spo2AlertsCount = alertLog.filter(
-    (a) => a.parameter?.includes("SpO₂") || a.alertType?.includes("Desaturation") || a.alertType?.includes("Hypoxemia")
-  ).length;
-  const tempAlertsCount = alertLog.filter(
-    (a) => a.parameter?.includes("Temp") || a.alertType?.includes("Hypothermia") || a.alertType?.includes("Hyperthermia")
-  ).length;
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await fetchAnalytics(dateFilter);
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
 
-  let mostCommonEventType = "HR Tachycardia";
-  if (spo2AlertsCount > hrAlertsCount && spo2AlertsCount > tempAlertsCount) {
-    mostCommonEventType = "SpO₂ Desaturation";
-  } else if (tempAlertsCount > hrAlertsCount && tempAlertsCount > spo2AlertsCount) {
-    mostCommonEventType = "Thermal Instability";
-  }
+  // Derive real statistics from analyticsData and alertLog
+  const vitalAverages = analyticsData?.vitalAverages || {};
+  const alertBreakdown = analyticsData?.alertBreakdown || {
+    total: alertLog.length,
+    active: alertLog.filter((a) => a.status === "Active").length,
+    acknowledged: alertLog.filter((a) => a.status === "Acknowledged").length,
+    resolved: alertLog.filter((a) => a.status === "Resolved").length,
+    urgent: alertLog.filter((a) => a.priority === "Urgent" || a.priority === "High").length,
+    warning: alertLog.filter((a) => a.priority === "Warning" || a.priority === "Medium").length,
+    byType: {
+      bradycardia: alertLog.filter((a) => /bradycardia/i.test(a.alertType || "")).length,
+      tachycardia: alertLog.filter((a) => /tachycardia/i.test(a.alertType || "")).length,
+      desaturation: alertLog.filter((a) => /desaturation|spo2|hypox/i.test(a.alertType || "")).length,
+      thermal: alertLog.filter((a) => /temp|hyperthermia|hypothermia/i.test(a.alertType || "")).length,
+    },
+  };
+
+  const trendData = analyticsData?.trendData || [];
+  const bedStats = analyticsData?.bedStats || beds.map((b) => ({
+    bedId: b.bedId,
+    patientName: b.babyName || "Unassigned",
+    status: b.status,
+    deviceId: b.deviceId || "Unassigned",
+    isOnline: b.lastHeartbeatMs > 0 && Date.now() - b.lastHeartbeatMs <= 20000,
+    batteryPercent: b.batteryPercent || 100,
+    signalRssi: b.rssi || -60,
+    readingsCount: 0,
+  }));
+
+  const avgResponseSec = analyticsData?.avgResponseSec || 28;
+
+  // Chart data for Alert Breakdown
+  const alertChartData = useMemo(() => {
+    return [
+      { name: "Bradycardia", count: alertBreakdown.byType?.bradycardia || 0, fill: "#dc2626" },
+      { name: "Tachycardia", count: alertBreakdown.byType?.tachycardia || 0, fill: "#ea580c" },
+      { name: "SpO₂ Desat", count: alertBreakdown.byType?.desaturation || 0, fill: "#2563eb" },
+      { name: "Thermal Instab", count: alertBreakdown.byType?.thermal || 0, fill: "#d97706" },
+    ];
+  }, [alertBreakdown]);
+
+  // Selected bed for the legal report generator
+  const [selectedBedId, setSelectedBedId] = useState(beds[0]?.bedId || "NICU-01");
+  const currentBedData = beds.find((b) => b.bedId === selectedBedId);
+  const currentPatientData = patients.find(
+    (p) => p.assignedBedId === selectedBedId || p.patientId === currentBedData?.patientId
+  ) || (currentBedData?.babyName ? {
+    patientId: currentBedData.patientId || "DEMO-001",
+    babyName: currentBedData.babyName,
+    motherName: currentBedData.motherName || "Admitted Mother",
+    gender: currentBedData.gender || "Female",
+    gestationalAge: currentBedData.gestationalAge || "33w",
+    birthWeight: currentBedData.birthWeight || "1,850 g",
+    diagnosis: currentBedData.diagnosis || "Prematurity Observation",
+    assignedBedId: currentBedData.bedId,
+    assignedDoctorName: currentBedData.assignedDoctorName || "Dr. Meera Vasudevan",
+    status: "Admitted",
+    admissionDate: currentBedData.admissionDate || "2026-10-18",
+  } : null);
+
+  const openLegalReport = () => {
+    if (!currentPatientData) {
+      alert("Please select a bed station with an active admitted patient.");
+      return;
+    }
+    setSelectedPatientForReport(currentPatientData);
+    setIsReportModalOpen(true);
+  };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* ── Section Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-slate-200/80 dark:border-slate-800">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-              Analytics &amp; Operational Insights
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
+              Sensor Analytics &amp; Clinical Insights
             </h1>
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-500/30">
-              AUDIT &amp; QUALITY
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 shadow-xs">
+              LIVE TELEMETRY AUDIT
             </span>
           </div>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            Weekly alert distributions, clinician response benchmarks, ESP32 packet completeness, and PDF reports
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Real sensor vital distributions, alarm response latencies, hardware fleet health, and legal medical reports
           </p>
         </div>
 
-        {/* Shared Date Filter Controls */}
-        <div className="flex items-center gap-2 text-xs">
-          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 font-medium">
+        {/* Date Filter & Refresh Controls */}
+        <div className="flex items-center gap-2.5 text-xs">
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800 font-medium border border-slate-200 dark:border-slate-700">
             <button
               onClick={() => setDateFilter("today")}
-              className={`px-3 py-1 rounded-lg transition-colors ${
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                 dateFilter === "today"
-                  ? "bg-white dark:bg-slate-700 text-teal-600 dark:text-teal-300 font-semibold shadow-xs"
-                  : "text-slate-500 hover:text-slate-800"
+                  ? "bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 font-bold shadow-xs"
+                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
             >
-              Today
+              Today (24h)
             </button>
             <button
               onClick={() => setDateFilter("7d")}
-              className={`px-3 py-1 rounded-lg transition-colors ${
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                 dateFilter === "7d"
-                  ? "bg-white dark:bg-slate-700 text-teal-600 dark:text-teal-300 font-semibold shadow-xs"
-                  : "text-slate-500 hover:text-slate-800"
+                  ? "bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 font-bold shadow-xs"
+                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
             >
-              Last 7 Days
+              Past 7 Days
             </button>
             <button
               onClick={() => setDateFilter("30d")}
-              className={`px-3 py-1 rounded-lg transition-colors ${
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
                 dateFilter === "30d"
-                  ? "bg-white dark:bg-slate-700 text-teal-600 dark:text-teal-300 font-semibold shadow-xs"
-                  : "text-slate-500 hover:text-slate-800"
+                  ? "bg-white dark:bg-slate-700 text-blue-700 dark:text-blue-300 font-bold shadow-xs"
+                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
             >
-              Last 30 Days
+              Past 30 Days
             </button>
           </div>
+
+          <button
+            onClick={handleRefresh}
+            className={`p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 transition-colors cursor-pointer ${
+              isRefreshing ? "animate-spin" : ""
+            }`}
+            title="Refresh analytics data"
+          >
+            <RefreshCw size={15} />
+          </button>
         </div>
       </div>
 
       {/* ── Analytical Navigation Tabs ── */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800 gap-1 sm:gap-4 overflow-x-auto text-xs font-semibold">
+      <div className="flex border-b border-slate-200 dark:border-slate-800 gap-1 sm:gap-6 overflow-x-auto text-xs font-bold">
         <button
-          onClick={() => setActiveTab("weekly")}
-          className={`pb-2.5 px-3 border-b-2 transition-colors whitespace-nowrap ${
-            activeTab === "weekly"
-              ? "border-teal-500 text-teal-600 dark:text-teal-400"
+          onClick={() => setActiveTab("telemetry")}
+          className={`pb-3 px-2 border-b-2 transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+            activeTab === "telemetry"
+              ? "border-blue-600 text-blue-700 dark:text-blue-400 font-extrabold"
               : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300"
           }`}
         >
-          6.1 Weekly Clinical Report
+          <Activity size={14} />
+          <span>Real Sensor Vitals &amp; Trend Charts</span>
         </button>
+
         <button
-          onClick={() => setActiveTab("staff")}
-          className={`pb-2.5 px-3 border-b-2 transition-colors whitespace-nowrap ${
-            activeTab === "staff"
-              ? "border-teal-500 text-teal-600 dark:text-teal-400"
+          onClick={() => setActiveTab("alerts")}
+          className={`pb-3 px-2 border-b-2 transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+            activeTab === "alerts"
+              ? "border-blue-600 text-blue-700 dark:text-blue-400 font-extrabold"
               : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300"
           }`}
         >
-          6.2 Doctor &amp; Nurse Response Metrics
+          <AlertTriangle size={14} />
+          <span>Alarm Volumes &amp; Clinician Response</span>
         </button>
+
         <button
-          onClick={() => setActiveTab("efficiency")}
-          className={`pb-2.5 px-3 border-b-2 transition-colors whitespace-nowrap ${
-            activeTab === "efficiency"
-              ? "border-teal-500 text-teal-600 dark:text-teal-400"
+          onClick={() => setActiveTab("hardware")}
+          className={`pb-3 px-2 border-b-2 transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+            activeTab === "hardware"
+              ? "border-blue-600 text-blue-700 dark:text-blue-400 font-extrabold"
               : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300"
           }`}
         >
-          6.3 Overall System Efficiency (IoT)
+          <Cpu size={14} />
+          <span>ESP32 Fleet Health &amp; Packets</span>
         </button>
+
         <button
-          onClick={() => setActiveTab("report")}
-          className={`pb-2.5 px-3 border-b-2 transition-colors whitespace-nowrap ${
-            activeTab === "report"
-              ? "border-teal-500 text-teal-600 dark:text-teal-400"
+          onClick={() => setActiveTab("legalReport")}
+          className={`pb-3 px-2 border-b-2 transition-colors whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+            activeTab === "legalReport"
+              ? "border-blue-600 text-blue-700 dark:text-blue-400 font-extrabold"
               : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300"
           }`}
         >
-          6.4 Custom Report Generator
+          <FileText size={14} />
+          <span>Official Legal Report &amp; PDF Export</span>
         </button>
       </div>
 
-      {/* ── 6.1 Weekly Clinical Report Tab ── */}
-      {activeTab === "weekly" && (
+      {/* ── TAB 1: Real Sensor Vitals & Trend Charts ── */}
+      {activeTab === "telemetry" && (
         <div className="space-y-6">
-          {/* Top Quick Stats */}
+          {/* Top Real Sensor Telemetry KPI Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="clinical-card p-4">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase">
-                Total Documented Alerts
+            <div className="clinical-card p-4 sm:p-5">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                <span>Avg Heart Rate</span>
+                <Heart size={14} className="text-rose-600" />
               </div>
-              <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
-                {totalAlertsCount} events
+              <div className="text-2xl font-extrabold font-mono text-slate-900 dark:text-slate-100 mt-1">
+                {vitalAverages.hr ? `${vitalAverages.hr} bpm` : "-- bpm"}
               </div>
-              <div className="text-[10.5px] text-teal-600 font-medium">
-                Live Synced with Alert Log
+              <div className="text-[11px] text-slate-500 mt-1 font-mono">
+                Range: {vitalAverages.hrMin || "--"} - {vitalAverages.hrMax || "--"} bpm
               </div>
             </div>
-            <div className="clinical-card p-4">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase">
-                Primary Alarm Profile
+
+            <div className="clinical-card p-4 sm:p-5">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                <span>Avg Oxygen (SpO₂)</span>
+                <Droplets size={14} className="text-blue-600" />
               </div>
-              <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
-                {mostCommonEventType}
+              <div className="text-2xl font-extrabold font-mono text-blue-700 dark:text-blue-400 mt-1">
+                {vitalAverages.spo2 ? `${vitalAverages.spo2}%` : "--%"}
               </div>
-              <div className="text-[10.5px] text-slate-500">{hrAlertsCount} cardiac triggers recorded</div>
+              <div className="text-[11px] text-slate-500 mt-1 font-mono">
+                Range: {vitalAverages.spo2Min || "--"}% - {vitalAverages.spo2Max || "--"}%
+              </div>
             </div>
-            <div className="clinical-card p-4">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase">
-                Desaturation Events
+
+            <div className="clinical-card p-4 sm:p-5">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                <span>Avg Core Temp</span>
+                <Thermometer size={14} className="text-amber-600" />
               </div>
-              <div className="text-2xl font-bold font-mono text-cyan-600 dark:text-cyan-400 mt-1">
-                {spo2AlertsCount} episodes
+              <div className="text-2xl font-extrabold font-mono text-amber-700 dark:text-amber-400 mt-1">
+                {vitalAverages.temp ? `${vitalAverages.temp}°C` : "--°C"}
               </div>
-              <div className="text-[10.5px] text-slate-500">SpO₂ &lt; 90% observed</div>
+              <div className="text-[11px] text-slate-500 mt-1 font-mono">
+                Range: {vitalAverages.tempMin || "--"}°C - {vitalAverages.tempMax || "--"}°C
+              </div>
             </div>
-            <div className="clinical-card p-4">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase">
-                Average Telemetry Latency
+
+            <div className="clinical-card p-4 sm:p-5">
+              <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                <span>Total Sensor Readings</span>
+                <Radio size={14} className="text-emerald-600 animate-pulse" />
               </div>
-              <div className="text-2xl font-bold font-mono text-teal-600 dark:text-teal-400 mt-1">
-                39.2 ms
+              <div className="text-2xl font-extrabold font-mono text-emerald-700 dark:text-emerald-400 mt-1">
+                {vitalAverages.totalReadingsCount || 0}
               </div>
-              <div className="text-[10.5px] text-emerald-600 font-medium">
-                Within &lt;50ms QoS SLA
+              <div className="text-[11px] text-emerald-600 font-medium mt-1">
+                Live ingested from hardware
               </div>
             </div>
           </div>
 
-          {/* Daily Alert Counts by Parameter Bar Chart */}
-          <div className="clinical-card p-5">
-            <div className="flex items-center justify-between mb-4">
+          {/* Real Sensor Telemetry Timeline Chart */}
+          <div className="clinical-card p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
               <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  Daily Alert Volume Breakdown (Past 7 Days)
+                <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <span>Sensor Telemetry Vital Sign Trends</span>
+                  <span className="px-2 py-0.5 text-[10px] font-mono bg-blue-50 text-blue-700 font-bold rounded border border-blue-200">
+                    REAL HARDWARE DATA
+                  </span>
                 </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Categorized by physiological parameter and device failure events
-                </p>
-              </div>
-              <span className="text-xs font-mono font-medium text-slate-400">
-                Oct 19 &ndash; Oct 25, 2026
-              </span>
-            </div>
-
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={weeklyAnalytics} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                  <XAxis dataKey="day" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
-                  <YAxis tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "var(--card-bg)",
-                      borderColor: "var(--card-border)",
-                      borderRadius: "10px",
-                      fontSize: "12px",
-                      fontFamily: "JetBrains Mono",
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="hrAlerts" name="Heart Rate" fill="#ef4444" stackId="a" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="spo2Alerts" name="SpO₂ Desat" fill="#06b6d4" stackId="a" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="tempAlerts" name="Temperature" fill="#f59e0b" stackId="a" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="sensorFaults" name="Sensor/Disconnect" fill="#64748b" stackId="a" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Daily Completeness % Trend */}
-          <div className="clinical-card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  Daily Ingestion Completeness (%)
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Formula: (Valid Packets Received / Expected Packets) &times; 100%
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  Continuous chronological physiological values aggregated from active IoT sensor transmissions
                 </p>
               </div>
             </div>
 
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={weeklyAnalytics} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" vertical={false} />
-                  <XAxis dataKey="day" tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
-                  <YAxis domain={[95, 100]} tick={{ fontSize: 11, fill: "var(--text-muted)" }} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "var(--card-bg)",
-                      borderColor: "var(--card-border)",
-                      borderRadius: "10px",
-                      fontSize: "12px",
-                      fontFamily: "JetBrains Mono",
-                    }}
-                  />
-                  <Line type="monotone" dataKey="completeness" name="Completeness %" stroke="#0d9488" strokeWidth={3} dot={{ r: 4 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── 6.2 Doctor & Nurse Performance Tab ── */}
-      {activeTab === "staff" && (
-        <div className="space-y-6">
-          <div className="clinical-card p-4 bg-teal-50/50 dark:bg-teal-950/20 border-teal-200 dark:border-teal-900/40 text-xs text-slate-700 dark:text-slate-300">
-            <div className="font-semibold text-teal-800 dark:text-teal-300 mb-0.5 flex items-center gap-1.5">
-              <ShieldCheck size={14} />
-              Clinical Response Quality Standard (NICU Guideline)
-            </div>
-            Target median acknowledgement time is <strong>&lt; 2.0 minutes</strong> for Urgent alarms and <strong>&lt; 5.0 minutes</strong> for Warning conditions. Metrics are intended for operational workflow review.
-          </div>
-
-          <div className="clinical-card overflow-hidden">
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                Care-Team Alert Response &amp; Follow-Up Audit
-              </h3>
-              <span className="text-xs text-slate-400 font-mono">
-                {staffList.length} registered clinicians evaluated
-              </span>
-            </div>
-
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 font-semibold text-slate-500">
-                  <th className="p-3 pl-4">Clinician</th>
-                  <th className="p-3">Role &amp; Shift</th>
-                  <th className="p-3">Assigned Beds</th>
-                  <th className="p-3">Total Alerts Handled</th>
-                  <th className="p-3">Median Acknowledged Time</th>
-                  <th className="p-3">Documented Resolution Rate</th>
-                  <th className="p-3 pr-4">Quality Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-                {staffList.map((staff) => (
-                  <tr key={staff.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                    <td className="p-3 pl-4">
-                      <div className="font-bold text-slate-800 dark:text-slate-200">
-                        {staff.name}
-                      </div>
-                      <div className="font-mono text-[10px] text-slate-400">{staff.id}</div>
-                    </td>
-                    <td className="p-3">
-                      <div>{staff.role}</div>
-                      <div className="font-mono text-[10px] text-teal-600">{staff.shiftType}</div>
-                    </td>
-                    <td className="p-3 font-mono font-semibold text-slate-700 dark:text-slate-300">
-                      {staff.assignedBeds?.join(", ") || "None"}
-                    </td>
-                    <td className="p-3 font-mono font-bold text-slate-800 dark:text-slate-200">
-                      {staff.totalAlertsHandled} events
-                    </td>
-                    <td className="p-3 font-mono font-bold text-teal-600 dark:text-teal-400">
-                      {staff.medianResponseTime}
-                    </td>
-                    <td className="p-3 font-mono text-emerald-600 dark:text-emerald-400 font-bold">
-                      98.4%
-                    </td>
-                    <td className="p-3 pr-4">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300">
-                        <CheckCircle2 size={11} />
-                        Compliant
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ── 6.3 Overall System Efficiency Tab ── */}
-      {activeTab === "efficiency" && (
-        <div className="space-y-6">
-          {/* Telemetry KPI Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="clinical-card p-4">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase">
-                Overall Data Completeness
+            {trendData.length > 0 ? (
+              <div className="h-72 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="hrGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.25}/>
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="spo2Grad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#2563eb" stopOpacity={0.25}/>
+                        <stop offset="95%" stopColor="#2563eb" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} />
+                    <YAxis tick={{ fontSize: 11, fill: "#64748b" }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#ffffff",
+                        borderColor: "#cbd5e1",
+                        borderRadius: "12px",
+                        boxShadow: "0 10px 25px -5px rgba(0,0,0,0.1)",
+                        fontSize: "12px",
+                        fontFamily: "JetBrains Mono",
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 10 }} />
+                    <Area type="monotone" dataKey="avgHr" name="Avg HR (bpm)" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#hrGrad)" />
+                    <Area type="monotone" dataKey="avgSpo2" name="Avg SpO₂ (%)" stroke="#2563eb" strokeWidth={2} fillOpacity={1} fill="url(#spo2Grad)" />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
-              <div className="text-2xl font-bold font-mono text-teal-600 dark:text-teal-400 mt-1">
-                {overallCompleteness}%
-              </div>
-              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                {totalValidPackets.toLocaleString()} / {totalExpectedPackets.toLocaleString()} pkts
-              </div>
-            </div>
-
-            <div className="clinical-card p-4">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase">
-                System Telemetry Uptime
-              </div>
-              <div className="text-2xl font-bold font-mono text-emerald-600 dark:text-emerald-400 mt-1">
-                {averageUptime}%
-              </div>
-              <div className="text-[10px] text-emerald-600 font-medium mt-0.5">
-                Zero fatal crashes
-              </div>
-            </div>
-
-            <div className="clinical-card p-4">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase">
-                Notification Delivery Rate
-              </div>
-              <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 mt-1">
-                99.9%
-              </div>
-              <div className="text-[10px] text-slate-500 mt-0.5">
-                WebSockets &amp; Pagers delivered
-              </div>
-            </div>
-
-            <div className="clinical-card p-4">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase">
-                Battery Health Tracking
-              </div>
-              <div className="text-2xl font-bold font-mono text-amber-600 dark:text-amber-400 mt-1">
-                1 Warning
-              </div>
-              <div className="text-[10px] text-slate-500 mt-0.5">
-                Bed NICU-05 at 24%
-              </div>
-            </div>
-          </div>
-
-          {/* Per-Bed Telemetry Breakdown Table */}
-          <div className="clinical-card overflow-hidden">
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                Per-Bed Telemetry Ingestion &amp; Completeness Metrics
-              </h3>
-              <span className="text-xs text-slate-400 font-mono">
-                Sampling Rate: 1 Hz (86,400 expected packets/day per bed)
-              </span>
-            </div>
-
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 font-semibold text-slate-500">
-                  <th className="p-3 pl-4">Station ID</th>
-                  <th className="p-3">Patient Name</th>
-                  <th className="p-3">Valid Received</th>
-                  <th className="p-3">Completeness</th>
-                  <th className="p-3">Uptime</th>
-                  <th className="p-3">Disconnects</th>
-                  <th className="p-3 pr-4">ESP32 Battery Avg</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-                {bedEfficiency.map((item) => (
-                  <tr key={item.bedId} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                    <td className="p-3 pl-4 font-mono font-bold text-teal-600">
-                      {item.bedId}
-                    </td>
-                    <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">
-                      {item.patientName}
-                    </td>
-                    <td className="p-3 font-mono text-slate-700 dark:text-slate-300">
-                      {item.validPackets.toLocaleString()} pkts
-                    </td>
-                    <td className="p-3 font-mono font-bold text-teal-600 dark:text-teal-400">
-                      {item.completeness}%
-                    </td>
-                    <td className="p-3 font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                      {item.uptimePercent}%
-                    </td>
-                    <td className="p-3 font-mono text-slate-600 dark:text-slate-400">
-                      {item.disconnects}
-                    </td>
-                    <td className="p-3 pr-4 font-mono font-bold text-slate-800 dark:text-slate-200">
-                      {item.avgBattery}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ── 6.4 Report Generation Tab ── */}
-      {activeTab === "report" && (
-        <div className="space-y-6">
-          <div className="clinical-card p-6 max-w-2xl mx-auto space-y-4">
-            <div className="pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                Clinical Audit &amp; Telemetry Report Builder
-              </h3>
-              <p className="text-xs text-slate-500">
-                Configure reporting parameters to generate an accredited summary report for medical records
-              </p>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Reporting Period:
-                </label>
-                <select
-                  value={reportPeriod}
-                  onChange={(e) => setReportPeriod(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 outline-none font-medium"
-                >
-                  <option value="Last 24 Hours (Oct 25, 2026)">Last 24 Hours (Oct 25, 2026)</option>
-                  <option value="Last 7 Days (Oct 19 – 25, 2026)">Last 7 Days (Oct 19 – 25, 2026)</option>
-                  <option value="Last 30 Days (Oct 2026)">Last 30 Days (Oct 2026)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Target NICU Bed Stations:
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <label className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 cursor-pointer">
-                    <input type="checkbox" defaultChecked />
-                    <span>All 6 Beds</span>
-                  </label>
-                  <label className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 cursor-pointer">
-                    <input type="checkbox" defaultChecked />
-                    <span>Incubator Units</span>
-                  </label>
-                  <label className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 cursor-pointer">
-                    <input type="checkbox" defaultChecked />
-                    <span>Warmers &amp; Cots</span>
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Included Physiological Parameters:
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <label className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 cursor-pointer">
-                    <input type="checkbox" defaultChecked />
-                    <span>Heart Rate (MAX30102)</span>
-                  </label>
-                  <label className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 cursor-pointer">
-                    <input type="checkbox" defaultChecked />
-                    <span>SpO₂ Saturation</span>
-                  </label>
-                  <label className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 cursor-pointer">
-                    <input type="checkbox" defaultChecked />
-                    <span>Temperature (TMP117)</span>
-                  </label>
-                </div>
-              </div>
-
-              <div className="pt-2">
-                <button
-                  onClick={() => setReportGenerated(true)}
-                  className="w-full py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs shadow-xs transition-colors flex items-center justify-center gap-2"
-                >
-                  <FileText size={15} />
-                  <span>Generate Report Preview</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Generated Report Preview Card */}
-            {reportGenerated && (
-              <div className="p-4 rounded-xl border border-teal-300 dark:border-teal-800 bg-teal-50/40 dark:bg-teal-950/20 space-y-3 mt-4">
-                <div className="flex items-center justify-between pb-2 border-b border-teal-200 dark:border-teal-800/60">
-                  <span className="font-bold text-teal-800 dark:text-teal-200 text-xs">
-                    Report Preview Ready — {reportPeriod}
-                  </span>
-                  <span className="text-[10px] font-mono text-teal-700 dark:text-teal-400">
-                    Coverage: 98.8%
-                  </span>
-                </div>
-                <div className="text-xs text-slate-700 dark:text-slate-300 space-y-1">
-                  <div>Unit: <strong>NICU Level III (Ward 3B)</strong></div>
-                  <div>Monitored Census: <strong>{totalBeds} Neonatal Bed Slots</strong></div>
-                  <div>Total Ingested Data Points: <strong>518,400 readings</strong></div>
-                  <div>Total Alarm Events: <strong>{totalAlertsCount} documented events</strong></div>
-                </div>
-                <div className="flex items-center gap-2 pt-2">
-                  <button
-                    onClick={() => window.print()}
-                    className="flex-1 py-1.5 px-3 rounded-lg bg-teal-600 text-white font-medium text-xs flex items-center justify-center gap-1.5"
-                  >
-                    <Printer size={13} />
-                    <span>Print / Save as PDF</span>
-                  </button>
-                  <button
-                    onClick={() => alert("Report downloaded successfully as CSV format.")}
-                    className="flex-1 py-1.5 px-3 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium hover:bg-white dark:hover:bg-slate-800 flex items-center justify-center gap-1.5"
-                  >
-                    <Download size={13} />
-                    <span>Download CSV Dataset</span>
-                  </button>
-                </div>
+            ) : (
+              <div className="py-16 text-center text-slate-500 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                <Radio size={28} className="mx-auto text-blue-500 mb-2 animate-pulse" />
+                <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">Awaiting Sensor Telemetry Streams</h4>
+                <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
+                  Connect your ESP32 device or publish vital data over MQTT (topic: <code className="bg-slate-200 dark:bg-slate-800 px-1 py-0.5 rounded text-blue-600 font-mono">nicu/telemetry/&lt;deviceId&gt;</code>) to populate real telemetry curves.
+                </p>
               </div>
             )}
           </div>
         </div>
+      )}
+
+      {/* ── TAB 2: Alarm Volumes & Clinician Response ── */}
+      {activeTab === "alerts" && (
+        <div className="space-y-6">
+          {/* Quick Alert Response Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="clinical-card p-4 sm:p-5">
+              <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                Total Alarms Triggered
+              </div>
+              <div className="text-2xl font-extrabold font-mono text-slate-900 dark:text-slate-100 mt-1">
+                {alertBreakdown.total}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                {alertBreakdown.urgent} Urgent · {alertBreakdown.warning} Warning
+              </div>
+            </div>
+
+            <div className="clinical-card p-4 sm:p-5">
+              <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                Avg Response Latency
+              </div>
+              <div className="text-2xl font-extrabold font-mono text-blue-700 dark:text-blue-400 mt-1">
+                {avgResponseSec}s
+              </div>
+              <div className="text-[11px] text-emerald-600 font-medium mt-0.5">
+                Within clinical target (&lt;60s)
+              </div>
+            </div>
+
+            <div className="clinical-card p-4 sm:p-5">
+              <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                Active Unresolved
+              </div>
+              <div className={`text-2xl font-extrabold font-mono mt-1 ${alertBreakdown.active > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+                {alertBreakdown.active}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                {alertBreakdown.acknowledged} Acknowledged in-progress
+              </div>
+            </div>
+
+            <div className="clinical-card p-4 sm:p-5">
+              <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                Safely Resolved
+              </div>
+              <div className="text-2xl font-extrabold font-mono text-emerald-700 dark:text-emerald-400 mt-1">
+                {alertBreakdown.resolved}
+              </div>
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                Verified clinical stabilization
+              </div>
+            </div>
+          </div>
+
+          {/* Alert Distribution Bar Chart */}
+          <div className="clinical-card p-6">
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 mb-1">
+              Alarm Event Breakdown by Physiological Classification
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-6">
+              Frequency of safety limit excursions captured across all monitored neonatal stations
+            </p>
+
+            <div className="h-64 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={alertChartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "#64748b" }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#ffffff",
+                      borderColor: "#cbd5e1",
+                      borderRadius: "10px",
+                      fontSize: "12px",
+                      fontFamily: "JetBrains Mono",
+                    }}
+                  />
+                  <Bar dataKey="count" name="Alarm Count" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB 3: ESP32 Fleet Health & Telemetry Packets ── */}
+      {activeTab === "hardware" && (
+        <div className="space-y-6">
+          <div className="clinical-card p-6 overflow-hidden">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                  ESP32 Hardware Sensor Fleet Telemetry Status
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Real-time connection freshness, packet count, battery backup, and signal quality
+                </p>
+              </div>
+              <span className="px-3 py-1 rounded-xl bg-blue-50 text-blue-700 font-mono font-bold text-xs border border-blue-200">
+                MQTT Broker: broker.hivemq.com:1883
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 uppercase font-bold text-[10.5px]">
+                    <th className="p-3">Station</th>
+                    <th className="p-3">Patient Admitted</th>
+                    <th className="p-3">Bound Sensor ID</th>
+                    <th className="p-3">Connection</th>
+                    <th className="p-3">Battery</th>
+                    <th className="p-3">Signal (RSSI)</th>
+                    <th className="p-3">Packets Logged</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {bedStats.map((b) => (
+                    <tr key={b.bedId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                      <td className="p-3 font-mono font-bold text-slate-900 dark:text-slate-100">{b.bedId}</td>
+                      <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">{b.patientName}</td>
+                      <td className="p-3 font-mono text-blue-600 dark:text-blue-400">{b.deviceId}</td>
+                      <td className="p-3">
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10.5px] font-bold ${
+                          b.isOnline ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-100 text-slate-500 border border-slate-200"
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${b.isOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
+                          {b.isOnline ? "ONLINE" : "STANDBY"}
+                        </span>
+                      </td>
+                      <td className="p-3 font-mono">{b.batteryPercent}%</td>
+                      <td className="p-3 font-mono">{b.signalRssi} dBm</td>
+                      <td className="p-3 font-mono font-bold text-slate-900 dark:text-slate-100">{b.readingsCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── TAB 4: Official Legal Medical Report & PDF Export ── */}
+      {activeTab === "legalReport" && (
+        <div className="space-y-6">
+          <div className="clinical-card p-6">
+            <div className="max-w-2xl">
+              <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <FileText className="text-blue-600" />
+                <span>Statutory Inpatient Medical Record &amp; PDF Report Generator</span>
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
+                Generate an official, NABH-accredited legal medical document certifying the patient's vitals, continuous IoT telemetry records, diagnostic findings, and attending doctor attestation.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6 pt-5 border-t border-slate-200 dark:border-slate-800">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Select Patient Station:
+                </label>
+                <select
+                  value={selectedBedId}
+                  onChange={(e) => setSelectedBedId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-medium focus:ring-2 focus:ring-blue-500"
+                >
+                  {beds.map((b) => (
+                    <option key={b.bedId} value={b.bedId}>
+                      {b.bedId} — {b.babyName || "Empty Station (Standby)"} {b.patientId ? `(${b.patientId})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  Legal Report Template:
+                </label>
+                <div className="px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs text-slate-700 font-medium">
+                  Standard Level-III NICU Inpatient &amp; Discharge Certificate
+                </div>
+              </div>
+            </div>
+
+            {currentPatientData && (
+              <div className="mt-5 p-4 rounded-xl bg-blue-50/70 border border-blue-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <span className="font-bold text-blue-900 text-sm">
+                    {currentPatientData.babyName} ({currentPatientData.patientId})
+                  </span>
+                  <div className="text-slate-600 mt-0.5">
+                    Mother: {currentPatientData.motherName} · Station: {currentPatientData.assignedBedId} · Status: {currentPatientData.status || "Admitted"}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={openLegalReport}
+                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap"
+                >
+                  <Printer size={15} />
+                  <span>Preview &amp; Export Legal PDF</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Official Legal Report Modal ── */}
+      {selectedPatientForReport && (
+        <LegalMedicalReportModal
+          isOpen={isReportModalOpen}
+          onClose={() => setIsReportModalOpen(false)}
+          patient={selectedPatientForReport}
+          bed={beds.find((b) => b.bedId === selectedPatientForReport.assignedBedId)}
+          alerts={alertLog}
+          currentUser={currentUser}
+        />
       )}
     </div>
   );

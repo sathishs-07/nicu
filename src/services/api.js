@@ -263,4 +263,15 @@ export const api = {
     const data = await safeFetch("/audit");
     return data || [];
   },
+
+  // ─── Real Sensor Telemetry Analytics & Historical Readings ─
+  getAnalytics: async (timeframe = "7d") => {
+    return safeFetch(`/analytics?timeframe=${encodeURIComponent(timeframe)}`);
+  },
+
+  getReadings: async (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    const data = await safeFetch(`/readings${query ? `?${query}` : ""}`);
+    return data || [];
+  },
 };

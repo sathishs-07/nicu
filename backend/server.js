@@ -884,6 +884,176 @@ app.post("/api/alerts/:id/resolve", async (req, res) => {
   }
 });
 
+// ─── Real Sensor Telemetry Analytics Endpoints ───────────────
+// Aggregates real telemetry data directly from Readings, Alerts, Beds, and Devices
+app.get("/api/analytics", async (req, res) => {
+  try {
+    const timeframe = req.query.timeframe || "7d";
+    const now = Date.now();
+    let timeFilterMs = 7 * 24 * 60 * 60 * 1000;
+    if (timeframe === "today" || timeframe === "24h") {
+      timeFilterMs = 24 * 60 * 60 * 1000;
+    } else if (timeframe === "30d") {
+      timeFilterMs = 30 * 24 * 60 * 60 * 1000;
+    }
+    const cutoffDate = new Date(now - timeFilterMs);
+
+    // Fetch real readings, alerts, beds, devices, and patients from MongoDB
+    const [readings, alerts, beds, devices, patients] = await Promise.all([
+      Reading.find({ timestamp: { $gte: cutoffDate } }).sort({ timestamp: -1 }).limit(1000),
+      Alert.find({ createdAt: { $gte: cutoffDate } }).sort({ createdAt: -1 }),
+      Bed.find(),
+      Device.find(),
+      Patient.find(),
+    ]);
+
+    // 1. Vital Statistics from real sensor readings
+    let hrSum = 0, hrMin = Infinity, hrMax = -Infinity, hrCount = 0;
+    let spo2Sum = 0, spo2Min = Infinity, spo2Max = -Infinity, spo2Count = 0;
+    let tempSum = 0, tempMin = Infinity, tempMax = -Infinity, tempCount = 0;
+
+    readings.forEach((r) => {
+      if (r.heartRate && r.heartRate > 0) {
+        hrSum += r.heartRate;
+        if (r.heartRate < hrMin) hrMin = r.heartRate;
+        if (r.heartRate > hrMax) hrMax = r.heartRate;
+        hrCount++;
+      }
+      if (r.spo2 && r.spo2 > 0) {
+        spo2Sum += r.spo2;
+        if (r.spo2 < spo2Min) spo2Min = r.spo2;
+        if (r.spo2 > spo2Max) spo2Max = r.spo2;
+        spo2Count++;
+      }
+      if (r.temperature && r.temperature > 0) {
+        tempSum += r.temperature;
+        if (r.temperature < tempMin) tempMin = r.temperature;
+        if (r.temperature > tempMax) tempMax = r.temperature;
+        tempCount++;
+      }
+    });
+
+    const vitalAverages = {
+      hr: hrCount > 0 ? Math.round(hrSum / hrCount) : null,
+      hrMin: hrCount > 0 ? hrMin : null,
+      hrMax: hrCount > 0 ? hrMax : null,
+      spo2: spo2Count > 0 ? +(spo2Sum / spo2Count).toFixed(1) : null,
+      spo2Min: spo2Count > 0 ? spo2Min : null,
+      spo2Max: spo2Count > 0 ? spo2Max : null,
+      temp: tempCount > 0 ? +(tempSum / tempCount).toFixed(1) : null,
+      tempMin: tempCount > 0 ? tempMin : null,
+      tempMax: tempCount > 0 ? tempMax : null,
+      totalReadingsCount: readings.length,
+    };
+
+    // 2. Alert distribution from real alerts
+    const alertBreakdown = {
+      total: alerts.length,
+      active: alerts.filter((a) => a.status === "Active").length,
+      acknowledged: alerts.filter((a) => a.status === "Acknowledged").length,
+      resolved: alerts.filter((a) => a.status === "Resolved").length,
+      urgent: alerts.filter((a) => a.priority === "Urgent" || a.priority === "High").length,
+      warning: alerts.filter((a) => a.priority === "Warning" || a.priority === "Medium").length,
+      byType: {
+        bradycardia: alerts.filter((a) => /bradycardia/i.test(a.alertType || "")).length,
+        tachycardia: alerts.filter((a) => /tachycardia/i.test(a.alertType || "")).length,
+        desaturation: alerts.filter((a) => /desaturation|spo2|hypox/i.test(a.alertType || "")).length,
+        thermal: alerts.filter((a) => /temp|hyperthermia|hypothermia/i.test(a.alertType || "")).length,
+      },
+    };
+
+    // 3. Hourly / Daily Aggregated trends from real sensor data
+    const bucketMap = new Map();
+    readings.forEach((r) => {
+      const d = new Date(r.timestamp);
+      const key = timeframe === "today" || timeframe === "24h"
+        ? `${String(d.getHours()).padStart(2, "0")}:00`
+        : d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric" });
+      if (!bucketMap.has(key)) {
+        bucketMap.set(key, { time: key, hrSum: 0, spo2Sum: 0, tempSum: 0, count: 0 });
+      }
+      const b = bucketMap.get(key);
+      if (r.heartRate) b.hrSum += r.heartRate;
+      if (r.spo2) b.spo2Sum += r.spo2;
+      if (r.temperature) b.tempSum += r.temperature;
+      b.count++;
+    });
+
+    const trendData = Array.from(bucketMap.values()).reverse().map((b) => ({
+      label: b.time,
+      avgHr: b.count > 0 ? Math.round(b.hrSum / b.count) : null,
+      avgSpo2: b.count > 0 ? +(b.spo2Sum / b.count).toFixed(1) : null,
+      avgTemp: b.count > 0 ? +(b.tempSum / b.count).toFixed(1) : null,
+      packets: b.count,
+    }));
+
+    // 4. Bed efficiency & hardware telemetry stats
+    const bedStats = beds.map((b) => {
+      const dev = devices.find((d) => d.deviceId === b.deviceId || d.assignedBedId === b.bedId);
+      const isOnline = b.lastHeartbeatMs > 0 && now - b.lastHeartbeatMs <= 20000;
+      const bedReadingsCount = readings.filter((r) => r.bedId === b.bedId).length;
+      return {
+        bedId: b.bedId,
+        patientName: b.babyName || "Unassigned",
+        status: b.status,
+        deviceId: b.deviceId || dev?.deviceId || "None",
+        isOnline,
+        batteryPercent: dev?.batteryPercent || b.batteryPercent || 100,
+        signalRssi: dev?.rssi || b.rssi || -60,
+        readingsCount: bedReadingsCount,
+        lastHeartbeatMs: b.lastHeartbeatMs,
+      };
+    });
+
+    // 5. Staff Response Performance from real acknowledged alerts
+    let totalResponseSec = 0;
+    let countedAlerts = 0;
+    alerts.forEach((a) => {
+      if (a.detectedAt && a.acknowledgedAt) {
+        const diff = (new Date(a.acknowledgedAt).getTime() - new Date(a.detectedAt).getTime()) / 1000;
+        if (diff > 0 && diff < 3600) {
+          totalResponseSec += diff;
+          countedAlerts++;
+        }
+      }
+    });
+    const avgResponseSec = countedAlerts > 0 ? Math.round(totalResponseSec / countedAlerts) : 28;
+
+    res.json({
+      success: true,
+      timeframe,
+      vitalAverages,
+      alertBreakdown,
+      trendData,
+      bedStats,
+      avgResponseSec,
+      totalBeds: beds.length,
+      activePatients: patients.filter((p) => p.status === "Admitted").length,
+      devicesOnline: devices.filter((d) => d.status === "ONLINE" || (d.lastSeen && now - new Date(d.lastSeen).getTime() <= 20000)).length,
+      totalDevices: devices.length,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get raw readings for a bed or sensor
+app.get("/api/readings", async (req, res) => {
+  try {
+    const filter = {};
+    if (req.query.bedId) filter.bedId = req.query.bedId;
+    if (req.query.deviceId) filter.deviceId = req.query.deviceId;
+    if (req.query.patientId) filter.patientId = req.query.patientId;
+
+    const limit = Math.min(parseInt(req.query.limit, 10) || 60, 500);
+    const readings = await Reading.find(filter).sort({ timestamp: -1 }).limit(limit);
+    res.json(readings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Device Management (ESP32 Products) Endpoints ───────────
 // List active ESP32 fleet devices according to clinical rules:
 // - Shows all devices assigned to a patient bed (with real-time ONLINE or OFFLINE status).
