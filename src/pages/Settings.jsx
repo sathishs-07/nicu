@@ -49,24 +49,22 @@ import { api } from "../services/api";
 
 const HIVEMQ_ARDUINO_CODE = `/*
  * ==============================================================================
- *  NICU Continuous Vital Monitoring System — Production ESP32 HiveMQ MQTT Transmitter
+ *  NICU Continuous Vital Monitoring System — ESP32 HiveMQ MQTT Transmitter
  * ==============================================================================
- *  Cloud Broker  : broker.hivemq.com (Port 1883) — Public HiveMQ MQTT Broker
+ *  Target Boards : ESP32 / ESP32-S3 / ESP32-WROOM-32 / ESP32 DevKit
+ *  Cloud Broker  : broker.hivemq.com (Port 1883) — 100% Free Public MQTT Broker
  *  Topic Pattern : nicu/telemetry/<DEVICE_ID> (e.g. nicu/telemetry/ESP32-NICU-01)
  *
- *  Hardware I2C Wiring:
- *    - SDA -> GPIO 21
- *    - SCL -> GPIO 22
- *    - VCC -> 3.3V (Warning: Do NOT connect 5V to 3.3V I2C sensors!)
- *    - GND -> GND
+ *  Hardware Pin Configuration:
+ *    - MAX30102 / MAX30105 I2C SDA -> GPIO 21
+ *    - MAX30102 / MAX30105 I2C SCL -> GPIO 22
+ *    - DHT11 Temperature & Humidity -> GPIO 4
+ *    - Status LED -> GPIO 2
  *
- *  Supported Clinical Sensors:
- *    - MAX30102 / MAX30105 Optical Pulse Oximeter & Heart Rate (I2C 0x57)
- *    - TMP117 High-Precision Clinical Skin Temperature (I2C 0x48)
- *
- *  Required Arduino IDE Libraries:
- *    1. PubSubClient by Nick O'Leary
- *    2. SparkFun MAX3010x Pulse and Proximity Sensor Library
+ *  BED ASSIGNMENT:
+ *    NOTE: Hardcoded BED_ID has been removed. This ESP32 acts as a portable
+ *    clinical telemetry node. You can assign or bind this DEVICE_ID to ANY
+ *    station/bed (NICU-01 through NICU-06) dynamically right from the web dashboard!
  * ==============================================================================
  */
 
@@ -75,159 +73,352 @@ const HIVEMQ_ARDUINO_CODE = `/*
 #include <Wire.h>
 #include "MAX30105.h"
 #include "heartRate.h"
+#include <DHT.h>
+#include <math.h>
 
-// Step 1: Configure your Wi-Fi credentials & Unique Device ID
-const char* WIFI_SSID     = "YOUR_WIFI_NAME";     // <-- Enter Wi-Fi SSID
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"; // <-- Enter Wi-Fi Password
-const char* DEVICE_ID     = "ESP32-NICU-01";      // <-- Unique Device ID (bind to Patient in Settings)
+// -------- Wi-Fi credentials --------
+const char* WIFI_SSID     = "wifi";
+const char* WIFI_PASSWORD = "sathishs";
 
-// Step 2: HiveMQ Public MQTT Broker Settings
+// -------- Device details --------
+// Uniquely identifies this physical transmitter node.
+// Assign this device ID to ANY bed in the web dashboard!
+const char* DEVICE_ID = "ESP32-NICU-01";
+
+// -------- HiveMQ public broker --------
 const char* MQTT_BROKER = "broker.hivemq.com";
-const int   MQTT_PORT   = 1883;
+const int MQTT_PORT = 1883;
 
+char mqttTopic[100];
+
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
+
+// -------- Pin configuration --------
 #define I2C_SDA 21
 #define I2C_SCL 22
-#define TMP117_ADDR 0x48
+#define DHT_PIN 4
+#define DHT_TYPE DHT11
+#define WIFI_LED_PIN 2
 
-MAX30105 particleSensor;
-bool max30102_found = false;
-bool tmp117_found = false;
+// Change to true if your onboard LED is active LOW.
+#define LED_ACTIVE_LOW false
 
-const byte RATE_SIZE = 4;
-byte rates[RATE_SIZE];
-byte rateSpot = 0;
+// -------- Sensors --------
+MAX30105 ppgSensor;
+DHT dht(DHT_PIN, DHT_TYPE);
+
+bool ppgFound = false;
+bool dhtReadingOK = false;
+bool ppgContact = false;
+
+// -------- PPG values --------
+long irValue = 0;
+long redValue = 0;
 long lastBeat = 0;
-float beatsPerMinute = 0;
-int beatAvg = 138;
-int currentSpo2 = 98;
-float currentTemp = 36.8;
 
-WiFiClient espClient;
-PubSubClient mqttClient(espClient);
-unsigned long lastTransmitTime = 0;
+float heartRate = NAN;
+float spo2Estimate = NAN;
 
-float readTMP117() {
-  Wire.beginTransmission(TMP117_ADDR);
-  Wire.write(0x00);
-  if (Wire.endTransmission() != 0) return -999.0;
-  Wire.requestFrom(TMP117_ADDR, 2);
-  if (Wire.available() == 2) {
-    int16_t raw = (Wire.read() << 8) | Wire.read();
-    return raw * 0.0078125;
-  }
-  return -999.0;
+// -------- Temperature & Humidity --------
+float temperatureC = NAN;
+float humidity = NAN;
+
+// -------- Timers --------
+unsigned long lastDHTRead = 0;
+unsigned long lastPublish = 0;
+unsigned long lastWiFiAttempt = 0;
+unsigned long lastMQTTAttempt = 0;
+unsigned long lastLEDChange = 0;
+
+const unsigned long PUBLISH_INTERVAL = 1000; // 1 Hz telemetry
+const unsigned long DHT_INTERVAL = 2000;     // 2 sec DHT cycle
+
+bool ledState = false;
+
+// =================================================
+// LED STATUS INDICATOR
+// =================================================
+void setLED(bool on) {
+  ledState = on;
+  digitalWrite(WIFI_LED_PIN, LED_ACTIVE_LOW ? !on : on);
 }
 
-void connectWiFi() {
+void updateLED() {
+  // Steady 500ms blink while connected to Wi-Fi
+  if (WiFi.status() == WL_CONNECTED) {
+    if (millis() - lastLEDChange >= 500) {
+      lastLEDChange = millis();
+      setLED(!ledState);
+    }
+  } else {
+    // Fast 150ms flash while searching / disconnected
+    if (millis() - lastLEDChange >= 150) {
+      lastLEDChange = millis();
+      setLED(!ledState);
+    }
+  }
+}
+
+// =================================================
+// WIFI AUTO-RECONNECT
+// =================================================
+void maintainWiFi() {
   if (WiFi.status() == WL_CONNECTED) return;
-  Serial.print("Connecting to Wi-Fi...");
+
+  if (lastWiFiAttempt != 0 && millis() - lastWiFiAttempt < 10000) {
+    return;
+  }
+
+  lastWiFiAttempt = millis();
+
+  Serial.println("Connecting to Wi-Fi...");
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 25) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
+}
+
+// =================================================
+// MQTT AUTO-RECONNECT (HiveMQ Cloud Public Broker)
+// =================================================
+void maintainMQTT() {
+  if (WiFi.status() != WL_CONNECTED || mqttClient.connected()) {
+    return;
   }
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println(" Connected! IP: " + WiFi.localIP().toString());
+
+  if (lastMQTTAttempt != 0 && millis() - lastMQTTAttempt < 3000) {
+    return;
+  }
+
+  lastMQTTAttempt = millis();
+
+  String clientId = "NICU-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+
+  Serial.print("Connecting to HiveMQ (broker.hivemq.com:1883)... ");
+
+  if (mqttClient.connect(clientId.c_str())) {
+    Serial.println("CONNECTED");
+    Serial.print("Publish Topic: ");
+    Serial.println(mqttTopic);
+  } else {
+    Serial.print("FAILED, state = ");
+    Serial.println(mqttClient.state());
   }
 }
 
-void reconnectMQTT() {
-  while (!mqttClient.connected()) {
-    if (WiFi.status() != WL_CONNECTED) connectWiFi();
-    Serial.print("[HiveMQ MQTT] Connecting to broker.hivemq.com:1883... ");
-    String clientId = "NICU_ESP32_" + String(DEVICE_ID) + "_" + String(random(0xffff), HEX);
-    if (mqttClient.connect(clientId.c_str())) {
-      Serial.println("CONNECTED!");
-    } else {
-      Serial.print("FAILED (rc=");
-      Serial.print(mqttClient.state());
-      Serial.println("). Retrying in 3 seconds...");
-      delay(3000);
-    }
-  }
-}
-
-void setup() {
-  Serial.begin(115200);
+// =================================================
+// INITIALIZE SENSORS
+// =================================================
+void initializeSensors() {
   Wire.begin(I2C_SDA, I2C_SCL);
 
-  if (particleSensor.begin(Wire, I2C_SPEED_FAST)) {
-    max30102_found = true;
-    particleSensor.setup();
-    particleSensor.setPulseAmplitudeRed(0x0A);
-    particleSensor.setPulseAmplitudeGreen(0);
-    Serial.println("MAX30102 Sensor Online");
+  Serial.println("Checking MAX30105 / MAX30102 on I2C...");
+
+  if (ppgSensor.begin(Wire, I2C_SPEED_FAST)) {
+    ppgFound = true;
+
+    ppgSensor.setup();
+    ppgSensor.setPulseAmplitudeRed(0x1F);
+    ppgSensor.setPulseAmplitudeIR(0x1F);
+    ppgSensor.setPulseAmplitudeGreen(0);
+
+    Serial.println("PPG sensor detected and initialized.");
+  } else {
+    Serial.println("PPG sensor NOT detected on I2C bus.");
   }
 
-  float tCheck = readTMP117();
-  if (tCheck > -100.0 && tCheck < 150.0) {
-    tmp117_found = true;
-    Serial.println("TMP117 Sensor Online");
-  }
-
-  connectWiFi();
-  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
-  mqttClient.setBufferSize(512);
+  dht.begin();
+  Serial.println("DHT11 initialized on GPIO 4; checking readings...");
 }
 
-void loop() {
-  if (WiFi.status() != WL_CONNECTED) connectWiFi();
-  if (!mqttClient.connected()) reconnectMQTT();
-  mqttClient.loop();
+// =================================================
+// READ PPG (MAX30102 / MAX30105)
+// =================================================
+void readPPG() {
+  if (!ppgFound) {
+    ppgContact = false;
+    heartRate = NAN;
+    spo2Estimate = NAN;
+    return;
+  }
 
-  if (max30102_found) {
-    long irValue = particleSensor.getIR();
-    if (irValue > 50000) {
-      if (checkForBeat(irValue)) {
-        long delta = millis() - lastBeat;
-        lastBeat = millis();
-        beatsPerMinute = 60 / (delta / 1000.0);
-        if (beatsPerMinute < 255 && beatsPerMinute > 60) {
-          rates[rateSpot++] = (byte)beatsPerMinute;
-          rateSpot %= RATE_SIZE;
-          beatAvg = 0;
-          for (byte x = 0; x < RATE_SIZE; x++) beatAvg += rates[x];
-          beatAvg /= RATE_SIZE;
-        }
+  irValue = ppgSensor.getIR();
+  redValue = ppgSensor.getRed();
+
+  // Optical contact threshold (< 50000 indicates poor contact or probe detached)
+  if (irValue < 50000) {
+    ppgContact = false;
+    heartRate = NAN;
+    spo2Estimate = NAN;
+    lastBeat = 0;
+    return;
+  }
+
+  ppgContact = true;
+
+  if (checkForBeat(irValue)) {
+    unsigned long now = millis();
+
+    if (lastBeat != 0) {
+      float bpm = 60000.0 / (now - lastBeat);
+
+      if (bpm >= 30 && bpm <= 240) {
+        heartRate = bpm;
       }
-      long redValue = particleSensor.getRed();
-      if (redValue > 1000 && irValue > 1000) {
-        float ratio = ((float)redValue / (float)irValue);
-        currentSpo2 = constrain((int)(110 - (18 * ratio)), 88, 100);
-      }
+    }
+
+    lastBeat = now;
+  }
+
+  // Mark old heart-rate readings as unavailable if no beat in 5 seconds
+  if (lastBeat == 0 || millis() - lastBeat > 5000) {
+    heartRate = NAN;
+  }
+
+  // Dual-wavelength optical SpO2 estimate
+  if (irValue > 0 && redValue > 0) {
+    float ratio = (float)redValue / (float)irValue;
+    float estimate = 110.0 - (18.0 * ratio);
+
+    if (estimate >= 70.0 && estimate <= 100.0) {
+      spo2Estimate = estimate;
     } else {
-      beatAvg = 138 + ((millis() / 2000) % 5);
-      currentSpo2 = 98;
+      spo2Estimate = NAN;
     }
   } else {
-    beatAvg = 140 + ((millis() / 2500) % 6);
-    currentSpo2 = 98;
+    spo2Estimate = NAN;
   }
+}
 
-  if (tmp117_found) {
-    float tRead = readTMP117();
-    if (tRead > 30.0 && tRead < 45.0) currentTemp = tRead;
+// =================================================
+// READ DHT11 (Skin / Incubator Temperature & Humidity)
+// =================================================
+void readDHT() {
+  if (millis() - lastDHTRead < DHT_INTERVAL) return;
+
+  lastDHTRead = millis();
+
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+
+  if (!isnan(t) && !isnan(h)) {
+    temperatureC = t;
+    humidity = h;
+    dhtReadingOK = true;
   } else {
-    currentTemp = 36.7 + ((millis() / 5000) % 3) * 0.1;
+    temperatureC = NAN;
+    humidity = NAN;
+    dhtReadingOK = false;
+    Serial.println("DHT11 read failed.");
+  }
+}
+
+// =================================================
+// CONVERT VALUES FOR JSON
+// =================================================
+String jsonNumber(float value, int decimals) {
+  if (isnan(value) || isinf(value)) {
+    return "null";
+  }
+  return String(value, decimals);
+}
+
+// =================================================
+// PUBLISH TO WEBSITE THROUGH MQTT
+// Dynamic bed mapping: Device streams with deviceId only.
+// The website automatically routes to whichever bed is assigned!
+// =================================================
+void publishData() {
+  String hrStatus;
+  String spo2Status;
+
+  if (!ppgFound) {
+    hrStatus = "SENSOR_NOT_DETECTED";
+    spo2Status = "SENSOR_NOT_DETECTED";
+  } else if (!ppgContact) {
+    hrStatus = "NO_CONTACT";
+    spo2Status = "NO_CONTACT";
+  } else {
+    hrStatus = isnan(heartRate) ? "NO_VALID_READING" : "ESTIMATED";
+    spo2Status = isnan(spo2Estimate) ? "NO_VALID_READING" : "UNVALIDATED_ESTIMATE";
   }
 
-  unsigned long now = millis();
-  if (now - lastTransmitTime >= 1000) {
-    lastTransmitTime = now;
-    String topic = "nicu/telemetry/" + String(DEVICE_ID);
-    String payload = String("{\\"deviceId\\":\\"") + DEVICE_ID +
-                     "\\",\\"heartRate\\":" + String(beatAvg) +
-                     ",\\"spo2\\":" + String(currentSpo2) +
-                     ",\\"temperature\\":" + String(currentTemp, 1) +
-                     ",\\"batteryPercent\\":95,\\"signalQuality\\":\\"Good\\"}";
-    mqttClient.publish(topic.c_str(), payload.c_str());
-    Serial.println("Published to " + topic + " -> HR: " + String(beatAvg) + " SpO2: " + String(currentSpo2) + "% Temp: " + String(currentTemp, 1) + "C");
+  String payload = "{";
+  payload += "\\"deviceId\\":\\"" + String(DEVICE_ID) + "\\",";
+  payload += "\\"simulationMode\\":false,";
+  payload += "\\"heartRateBpm\\":" + jsonNumber(heartRate, 1) + ",";
+  payload += "\\"heartRate\\":" + jsonNumber(heartRate, 1) + ",";
+  payload += "\\"heartRateStatus\\":\\"" + hrStatus + "\\",";
+  payload += "\\"spo2EstimatePercent\\":" + jsonNumber(spo2Estimate, 1) + ",";
+  payload += "\\"spo2\\":" + jsonNumber(spo2Estimate, 1) + ",";
+  payload += "\\"spo2Status\\":\\"" + spo2Status + "\\",";
+  payload += "\\"temperatureC\\":" + jsonNumber(temperatureC, 1) + ",";
+  payload += "\\"temperature\\":" + jsonNumber(temperatureC, 1) + ",";
+  payload += "\\"humidityPercent\\":" + jsonNumber(humidity, 1) + ",";
+  payload += "\\"dht11Status\\":\\"" +
+             String(dhtReadingOK ? "WORKING" : "NO_VALID_READING") + "\\",";
+  payload += "\\"ppgSensorStatus\\":\\"" +
+             String(ppgFound ? "DETECTED" : "NOT_DETECTED") + "\\",";
+  payload += "\\"irValue\\":" + String(irValue) + ",";
+  payload += "\\"redValue\\":" + String(redValue) + ",";
+  payload += "\\"wifiConnected\\":";
+  payload += (WiFi.status() == WL_CONNECTED ? "true," : "false,");
+  payload += "\\"rssi\\":";
+  payload += (WiFi.status() == WL_CONNECTED ?
+              String(WiFi.RSSI()) : "null");
+  payload += "}";
+
+  if (mqttClient.connected()) {
+    bool ok = mqttClient.publish(mqttTopic, payload.c_str());
+
+    Serial.println(ok ? "✓ [MQTT PUBLISH OK]" : "✗ [MQTT PUBLISH FAILED]");
+    Serial.println(payload);
+  } else {
+    Serial.println("MQTT disconnected; message not sent.");
+  }
+}
+
+// =================================================
+// SETUP
+// =================================================
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  pinMode(WIFI_LED_PIN, OUTPUT);
+  setLED(false);
+
+  snprintf(mqttTopic, sizeof(mqttTopic), "nicu/telemetry/%s", DEVICE_ID);
+
+  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
+  mqttClient.setBufferSize(768);
+
+  initializeSensors();
+  maintainWiFi();
+
+  Serial.println("NICU MQTT Vital Transmitter Initialized.");
+  Serial.println("Device ID: " + String(DEVICE_ID));
+  Serial.println("Bed: Dynamic (Assign to any bed on web dashboard)");
+}
+
+// =================================================
+// MAIN LOOP
+// =================================================
+void loop() {
+  maintainWiFi();
+  maintainMQTT();
+
+  mqttClient.loop();
+  updateLED();
+
+  readPPG();
+  readDHT();
+
+  if (millis() - lastPublish >= PUBLISH_INTERVAL) {
+    lastPublish = millis();
+    publishData();
   }
 
-  delay(20);
+  delay(10);
 }
 `;
 
@@ -294,6 +485,12 @@ export default function Settings() {
   const [thresholdForm, setThresholdForm] = useState({ ...thresholds });
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [activeFirmwareTab, setActiveFirmwareTab] = useState("mqtt"); // Default to HiveMQ MQTT
+
+  useEffect(() => {
+    if (thresholds) {
+      setThresholdForm({ ...thresholds });
+    }
+  }, [thresholds]);
 
   // Bed Slot Management state
   const [showAddBedModal, setShowAddBedModal] = useState(false);
@@ -650,175 +847,658 @@ export default function Settings() {
             </div>
           </div>
 
-          <form onSubmit={handleSaveThresholds} className="clinical-card p-6 space-y-5">
-            <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex items-center justify-between">
+          <form onSubmit={handleSaveThresholds} className="clinical-card p-6 space-y-6">
+            <div className="border-b border-slate-100 dark:border-slate-800 pb-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
               <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  Neonatal Clinical Safety Limits
+                <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <span>Neonatal Clinical Safety Limits &amp; Thresholds</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 font-bold">
+                    Adjustable &amp; Typeable
+                  </span>
                 </h3>
-                <p className="text-xs text-slate-500">
-                  Authoritative triggers for Bradycardia, Tachycardia, Hypoxemia, and Thermal Instability
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Type custom numbers directly into input fields or use sliders/buttons. Supports extreme lower and higher safety boundaries.
                 </p>
               </div>
 
               {saveSuccess && (
-                <span className="flex items-center gap-1.5 text-xs text-emerald-600 font-semibold font-mono animate-fade-in">
+                <span className="flex items-center gap-1.5 text-xs text-emerald-600 font-bold font-mono animate-fade-in bg-emerald-50 dark:bg-emerald-950/60 px-3 py-1.5 rounded-xl border border-emerald-300 dark:border-emerald-800">
                   <CheckCircle2 size={16} />
                   Thresholds updated &amp; logged!
                 </span>
               )}
             </div>
 
+            {/* Quick Clinical Protocol Presets */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-2 font-mono">
+                ⚡ Quick Clinical Protocol Presets:
+              </span>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <button
+                  type="button"
+                  disabled={!canEditThresholds}
+                  onClick={() =>
+                    setThresholdForm({
+                      hrLow: 100,
+                      hrHigh: 180,
+                      spo2Low: 90,
+                      tempLow: 36.2,
+                      tempHigh: 37.5,
+                      persistenceSeconds: 5,
+                    })
+                  }
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-500 font-semibold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer text-[11px]"
+                >
+                  Standard Term (100–180 BPM, ≥90%, 36.2–37.5°C)
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!canEditThresholds}
+                  onClick={() =>
+                    setThresholdForm({
+                      hrLow: 110,
+                      hrHigh: 185,
+                      spo2Low: 92,
+                      tempLow: 36.5,
+                      tempHigh: 37.5,
+                      persistenceSeconds: 3,
+                    })
+                  }
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-500 font-semibold text-slate-700 dark:text-slate-200 transition-colors cursor-pointer text-[11px]"
+                >
+                  Preterm Strict (&lt;32w) (110–185 BPM, ≥92%)
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!canEditThresholds}
+                  onClick={() =>
+                    setThresholdForm({
+                      hrLow: 80,
+                      hrHigh: 160,
+                      spo2Low: 92,
+                      tempLow: 33.0,
+                      tempHigh: 34.5,
+                      persistenceSeconds: 5,
+                    })
+                  }
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-cyan-500 font-semibold text-cyan-700 dark:text-cyan-300 transition-colors cursor-pointer text-[11px]"
+                >
+                  Therapeutic Hypothermia (Cooling 33.0–34.5°C)
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!canEditThresholds}
+                  onClick={() =>
+                    setThresholdForm({
+                      hrLow: 80,
+                      hrHigh: 200,
+                      spo2Low: 85,
+                      tempLow: 35.5,
+                      tempHigh: 38.0,
+                      persistenceSeconds: 10,
+                    })
+                  }
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-amber-500 font-semibold text-amber-700 dark:text-amber-300 transition-colors cursor-pointer text-[11px]"
+                >
+                  Permissive / Wide (80–200 BPM, ≥85%)
+                </button>
+
+                <button
+                  type="button"
+                  disabled={!canEditThresholds}
+                  onClick={() =>
+                    setThresholdForm({
+                      hrLow: 90,
+                      hrHigh: 190,
+                      spo2Low: 88,
+                      tempLow: 28.0,
+                      tempHigh: 37.8,
+                      persistenceSeconds: 5,
+                    })
+                  }
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-emerald-500 font-semibold text-emerald-700 dark:text-emerald-300 transition-colors cursor-pointer text-[11px]"
+                >
+                  Sensor / Bench Test (~30°C Skin Temp, ≥25°C Limit)
+                </button>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
-              {/* Heart Rate Minimum (Bradycardia) */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2">
-                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                  <span>Heart Rate Lower Limit (Bradycardia):</span>
-                  <span className="font-mono text-blue-600 font-bold">{thresholdForm.hrLow} BPM</span>
-                </label>
+              {/* Heart Rate Lower Limit (Bradycardia) */}
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-extrabold text-slate-900 dark:text-slate-100 block">
+                      Heart Rate Lower Limit (Bradycardia)
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Fires urgent alarm if pulse drops below this threshold
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-rose-600 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800">
+                    URGENT
+                  </span>
+                </div>
+
+                {/* Direct Typing Input & Nudge Stepper */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!canEditThresholds}
+                    onClick={() =>
+                      setThresholdForm({
+                        ...thresholdForm,
+                        hrLow: Math.max(20, (thresholdForm.hrLow || 100) - 5),
+                      })
+                    }
+                    className="w-8 h-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 cursor-pointer flex items-center justify-center text-sm shadow-2xs"
+                    title="Lower limit by 5 BPM"
+                  >
+                    -
+                  </button>
+
+                  <div className="flex-1 relative">
+                    <input
+                      type="number"
+                      min="20"
+                      max="180"
+                      step="1"
+                      disabled={!canEditThresholds}
+                      value={thresholdForm.hrLow ?? ""}
+                      onChange={(e) =>
+                        setThresholdForm({
+                          ...thresholdForm,
+                          hrLow: e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold text-base text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="absolute right-3 top-2 font-mono text-xs text-slate-400">
+                      BPM
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={!canEditThresholds}
+                    onClick={() =>
+                      setThresholdForm({
+                        ...thresholdForm,
+                        hrLow: Math.min(180, (thresholdForm.hrLow || 100) + 5),
+                      })
+                    }
+                    className="w-8 h-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 cursor-pointer flex items-center justify-center text-sm shadow-2xs"
+                    title="Raise limit by 5 BPM"
+                  >
+                    +
+                  </button>
+                </div>
+
                 <input
                   type="range"
-                  min="80"
-                  max="120"
+                  min="30"
+                  max="140"
                   step="1"
                   disabled={!canEditThresholds}
-                  value={thresholdForm.hrLow}
+                  value={thresholdForm.hrLow || 100}
                   onChange={(e) =>
                     setThresholdForm({ ...thresholdForm, hrLow: Number(e.target.value) })
                   }
                   className="w-full accent-blue-600 cursor-pointer"
                 />
-                <div className="text-[10.5px] text-slate-400 flex justify-between font-mono">
-                  <span>80 BPM</span>
-                  <span>Neonatal Standard: 100 BPM</span>
-                  <span>120 BPM</span>
+                <div className="text-[10px] text-slate-400 flex justify-between font-mono">
+                  <span>30 BPM (Severe)</span>
+                  <span className="text-blue-600 font-semibold">Standard: 100 BPM</span>
+                  <span>140 BPM</span>
                 </div>
               </div>
 
-              {/* Heart Rate Maximum (Tachycardia) */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2">
-                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                  <span>Heart Rate Upper Limit (Tachycardia):</span>
-                  <span className="font-mono text-blue-600 font-bold">{thresholdForm.hrHigh} BPM</span>
-                </label>
+              {/* Heart Rate Upper Limit (Tachycardia) */}
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-extrabold text-slate-900 dark:text-slate-100 block">
+                      Heart Rate Upper Limit (Tachycardia)
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Fires urgent alarm if pulse exceeds this threshold
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-rose-600 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800">
+                    URGENT
+                  </span>
+                </div>
+
+                {/* Direct Typing Input & Nudge Stepper */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!canEditThresholds}
+                    onClick={() =>
+                      setThresholdForm({
+                        ...thresholdForm,
+                        hrHigh: Math.max(90, (thresholdForm.hrHigh || 180) - 5),
+                      })
+                    }
+                    className="w-8 h-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 cursor-pointer flex items-center justify-center text-sm shadow-2xs"
+                    title="Lower limit by 5 BPM"
+                  >
+                    -
+                  </button>
+
+                  <div className="flex-1 relative">
+                    <input
+                      type="number"
+                      min="80"
+                      max="260"
+                      step="1"
+                      disabled={!canEditThresholds}
+                      value={thresholdForm.hrHigh ?? ""}
+                      onChange={(e) =>
+                        setThresholdForm({
+                          ...thresholdForm,
+                          hrHigh: e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold text-base text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="absolute right-3 top-2 font-mono text-xs text-slate-400">
+                      BPM
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={!canEditThresholds}
+                    onClick={() =>
+                      setThresholdForm({
+                        ...thresholdForm,
+                        hrHigh: Math.min(260, (thresholdForm.hrHigh || 180) + 5),
+                      })
+                    }
+                    className="w-8 h-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 cursor-pointer flex items-center justify-center text-sm shadow-2xs"
+                    title="Raise limit by 5 BPM"
+                  >
+                    +
+                  </button>
+                </div>
+
                 <input
                   type="range"
-                  min="160"
-                  max="210"
+                  min="120"
+                  max="240"
                   step="1"
                   disabled={!canEditThresholds}
-                  value={thresholdForm.hrHigh}
+                  value={thresholdForm.hrHigh || 180}
                   onChange={(e) =>
                     setThresholdForm({ ...thresholdForm, hrHigh: Number(e.target.value) })
                   }
                   className="w-full accent-blue-600 cursor-pointer"
                 />
-                <div className="text-[10.5px] text-slate-400 flex justify-between font-mono">
-                  <span>160 BPM</span>
-                  <span>Neonatal Standard: 180 BPM</span>
-                  <span>210 BPM</span>
+                <div className="text-[10px] text-slate-400 flex justify-between font-mono">
+                  <span>120 BPM</span>
+                  <span className="text-blue-600 font-semibold">Standard: 180 BPM</span>
+                  <span>240 BPM (SVT Range)</span>
                 </div>
               </div>
 
-              {/* SpO2 Minimum */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2">
-                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                  <span>Oxygen Saturation Lower Limit (SpO₂ Desat):</span>
-                  <span className="font-mono text-cyan-600 font-bold">{thresholdForm.spo2Low}%</span>
-                </label>
+              {/* SpO2 Minimum Lower Limit */}
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-extrabold text-slate-900 dark:text-slate-100 block">
+                      Oxygen Saturation Lower Limit (SpO₂ Desat)
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Triggers desaturation hypoxia alert
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-rose-600 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded border border-rose-200 dark:border-rose-800">
+                    CRITICAL
+                  </span>
+                </div>
+
+                {/* Direct Typing Input & Nudge Stepper */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!canEditThresholds}
+                    onClick={() =>
+                      setThresholdForm({
+                        ...thresholdForm,
+                        spo2Low: Math.max(50, (thresholdForm.spo2Low || 90) - 1),
+                      })
+                    }
+                    className="w-8 h-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 cursor-pointer flex items-center justify-center text-sm shadow-2xs"
+                    title="Lower limit by 1%"
+                  >
+                    -
+                  </button>
+
+                  <div className="flex-1 relative">
+                    <input
+                      type="number"
+                      min="50"
+                      max="100"
+                      step="1"
+                      disabled={!canEditThresholds}
+                      value={thresholdForm.spo2Low ?? ""}
+                      onChange={(e) =>
+                        setThresholdForm({
+                          ...thresholdForm,
+                          spo2Low: e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold text-base text-cyan-600 dark:text-cyan-400 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    />
+                    <span className="absolute right-3 top-2 font-mono text-xs text-slate-400">
+                      %
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={!canEditThresholds}
+                    onClick={() =>
+                      setThresholdForm({
+                        ...thresholdForm,
+                        spo2Low: Math.min(100, (thresholdForm.spo2Low || 90) + 1),
+                      })
+                    }
+                    className="w-8 h-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 cursor-pointer flex items-center justify-center text-sm shadow-2xs"
+                    title="Raise limit by 1%"
+                  >
+                    +
+                  </button>
+                </div>
+
                 <input
                   type="range"
-                  min="85"
-                  max="95"
+                  min="60"
+                  max="98"
                   step="1"
                   disabled={!canEditThresholds}
-                  value={thresholdForm.spo2Low}
+                  value={thresholdForm.spo2Low || 90}
                   onChange={(e) =>
                     setThresholdForm({ ...thresholdForm, spo2Low: Number(e.target.value) })
                   }
                   className="w-full accent-cyan-600 cursor-pointer"
                 />
-                <div className="text-[10.5px] text-slate-400 flex justify-between font-mono">
-                  <span>85% (Critical)</span>
-                  <span>Recommended: 90%</span>
-                  <span>95%</span>
+                <div className="text-[10px] text-slate-400 flex justify-between font-mono">
+                  <span>60% (Permissive Cyanotic)</span>
+                  <span className="text-cyan-600 font-semibold">Standard: 90%</span>
+                  <span>98%</span>
                 </div>
               </div>
 
-              {/* Persistence Rules */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2">
-                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                  <span>Alarm Persistence Filter (Seconds):</span>
-                  <span className="font-mono text-slate-700 dark:text-slate-300 font-bold">
-                    {thresholdForm.persistenceSeconds} seconds
+              {/* Alarm Persistence Filter */}
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-extrabold text-slate-900 dark:text-slate-100 block">
+                      Alarm Persistence Filter
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Seconds out-of-range before audio/visual alarm triggers
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-slate-600 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
+                    FILTER
                   </span>
-                </label>
+                </div>
+
+                {/* Direct Typing Input & Nudge Stepper */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!canEditThresholds}
+                    onClick={() =>
+                      setThresholdForm({
+                        ...thresholdForm,
+                        persistenceSeconds: Math.max(0, (thresholdForm.persistenceSeconds || 5) - 1),
+                      })
+                    }
+                    className="w-8 h-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 cursor-pointer flex items-center justify-center text-sm shadow-2xs"
+                    title="Decrease by 1s"
+                  >
+                    -
+                  </button>
+
+                  <div className="flex-1 relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="60"
+                      step="1"
+                      disabled={!canEditThresholds}
+                      value={thresholdForm.persistenceSeconds ?? ""}
+                      onChange={(e) =>
+                        setThresholdForm({
+                          ...thresholdForm,
+                          persistenceSeconds: e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold text-base text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="absolute right-3 top-2 font-mono text-xs text-slate-400">
+                      sec
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={!canEditThresholds}
+                    onClick={() =>
+                      setThresholdForm({
+                        ...thresholdForm,
+                        persistenceSeconds: Math.min(60, (thresholdForm.persistenceSeconds || 5) + 1),
+                      })
+                    }
+                    className="w-8 h-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 cursor-pointer flex items-center justify-center text-sm shadow-2xs"
+                    title="Increase by 1s"
+                  >
+                    +
+                  </button>
+                </div>
+
                 <input
                   type="range"
-                  min="2"
-                  max="15"
+                  min="0"
+                  max="30"
                   step="1"
                   disabled={!canEditThresholds}
-                  value={thresholdForm.persistenceSeconds}
+                  value={thresholdForm.persistenceSeconds || 5}
                   onChange={(e) =>
                     setThresholdForm({ ...thresholdForm, persistenceSeconds: Number(e.target.value) })
                   }
                   className="w-full accent-blue-600 cursor-pointer"
                 />
-                <div className="text-[10.5px] text-slate-400 flex justify-between font-mono">
-                  <span>2s (Strict)</span>
-                  <span>Suppresses artifact motion spikes</span>
-                  <span>15s</span>
+                <div className="text-[10px] text-slate-400 flex justify-between font-mono">
+                  <span>0s (Instant)</span>
+                  <span className="text-blue-600 font-semibold">Standard: 5s (Anti-artifact)</span>
+                  <span>30s</span>
                 </div>
               </div>
 
-              {/* Temperature Low */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2">
-                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                  <span>Skin Temp Lower Limit (Hypothermia):</span>
-                  <span className="font-mono text-amber-600 font-bold">{thresholdForm.tempLow} °C</span>
-                </label>
+              {/* Skin Temperature Low (Hypothermia) */}
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-extrabold text-slate-900 dark:text-slate-100 block">
+                      Skin Temp Lower Limit (Hypothermia)
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Adjustable from 25.0°C upwards to support ambient sensor readings (~30°C)
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-amber-600 bg-amber-50 dark:bg-amber-950 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                    WARNING
+                  </span>
+                </div>
+
+                {/* Direct Typing Input & Nudge Stepper */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!canEditThresholds}
+                    onClick={() =>
+                      setThresholdForm({
+                        ...thresholdForm,
+                        tempLow: Number((Math.max(25.0, (thresholdForm.tempLow || 28.0) - 0.2)).toFixed(1)),
+                      })
+                    }
+                    className="w-8 h-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 cursor-pointer flex items-center justify-center text-sm shadow-2xs"
+                    title="Lower limit by 0.2°C"
+                  >
+                    -
+                  </button>
+
+                  <div className="flex-1 relative">
+                    <input
+                      type="number"
+                      min="25.0"
+                      max="38.0"
+                      step="0.1"
+                      disabled={!canEditThresholds}
+                      value={thresholdForm.tempLow ?? ""}
+                      onChange={(e) =>
+                        setThresholdForm({
+                          ...thresholdForm,
+                          tempLow: e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold text-base text-amber-600 dark:text-amber-400 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                    <span className="absolute right-3 top-2 font-mono text-xs text-slate-400">
+                      °C
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={!canEditThresholds}
+                    onClick={() =>
+                      setThresholdForm({
+                        ...thresholdForm,
+                        tempLow: Number((Math.min(38.0, (thresholdForm.tempLow || 28.0) + 0.2)).toFixed(1)),
+                      })
+                    }
+                    className="w-8 h-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 cursor-pointer flex items-center justify-center text-sm shadow-2xs"
+                    title="Raise limit by 0.2°C"
+                  >
+                    +
+                  </button>
+                </div>
+
                 <input
                   type="range"
-                  min="35.5"
-                  max="36.5"
+                  min="25.0"
+                  max="37.5"
                   step="0.1"
                   disabled={!canEditThresholds}
-                  value={thresholdForm.tempLow}
+                  value={thresholdForm.tempLow || 28.0}
                   onChange={(e) =>
                     setThresholdForm({ ...thresholdForm, tempLow: Number(e.target.value) })
                   }
                   className="w-full accent-amber-600 cursor-pointer"
                 />
-                <div className="text-[10.5px] text-slate-400 flex justify-between font-mono">
-                  <span>35.5 °C</span>
-                  <span>Standard: 36.2 °C</span>
-                  <span>36.5 °C</span>
+                <div className="text-[10px] text-slate-400 flex justify-between font-mono">
+                  <span>25.0 °C (Bench Test / Sensor)</span>
+                  <span className="text-amber-600 font-semibold">Standard: 36.2 °C (Clinical)</span>
+                  <span>37.5 °C</span>
                 </div>
               </div>
 
-              {/* Temperature High */}
-              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2">
-                <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center justify-between">
-                  <span>Skin Temp Upper Limit (Hyperthermia):</span>
-                  <span className="font-mono text-amber-600 font-bold">{thresholdForm.tempHigh} °C</span>
-                </label>
+              {/* Skin Temperature High (Hyperthermia / Fever) */}
+              <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-extrabold text-slate-900 dark:text-slate-100 block">
+                      Skin Temp Upper Limit (Hyperthermia)
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      Incubator overheating &amp; fever trigger
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono font-bold text-amber-600 bg-amber-50 dark:bg-amber-950 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                    WARNING
+                  </span>
+                </div>
+
+                {/* Direct Typing Input & Nudge Stepper */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!canEditThresholds}
+                    onClick={() =>
+                      setThresholdForm({
+                        ...thresholdForm,
+                        tempHigh: Number((Math.max(35.0, (thresholdForm.tempHigh || 37.5) - 0.2)).toFixed(1)),
+                      })
+                    }
+                    className="w-8 h-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 cursor-pointer flex items-center justify-center text-sm shadow-2xs"
+                    title="Lower limit by 0.2°C"
+                  >
+                    -
+                  </button>
+
+                  <div className="flex-1 relative">
+                    <input
+                      type="number"
+                      min="35.0"
+                      max="43.0"
+                      step="0.1"
+                      disabled={!canEditThresholds}
+                      value={thresholdForm.tempHigh ?? ""}
+                      onChange={(e) =>
+                        setThresholdForm({
+                          ...thresholdForm,
+                          tempHigh: e.target.value === "" ? "" : Number(e.target.value),
+                        })
+                      }
+                      className="w-full px-3 py-1.5 font-mono font-bold text-base text-amber-600 dark:text-amber-400 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                    <span className="absolute right-3 top-2 font-mono text-xs text-slate-400">
+                      °C
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={!canEditThresholds}
+                    onClick={() =>
+                      setThresholdForm({
+                        ...thresholdForm,
+                        tempHigh: Number((Math.min(43.0, (thresholdForm.tempHigh || 37.5) + 0.2)).toFixed(1)),
+                      })
+                    }
+                    className="w-8 h-8 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold hover:bg-slate-100 cursor-pointer flex items-center justify-center text-sm shadow-2xs"
+                    title="Raise limit by 0.2°C"
+                  >
+                    +
+                  </button>
+                </div>
+
                 <input
                   type="range"
-                  min="37.0"
-                  max="38.5"
+                  min="36.0"
+                  max="40.0"
                   step="0.1"
                   disabled={!canEditThresholds}
-                  value={thresholdForm.tempHigh}
+                  value={thresholdForm.tempHigh || 37.5}
                   onChange={(e) =>
                     setThresholdForm({ ...thresholdForm, tempHigh: Number(e.target.value) })
                   }
                   className="w-full accent-amber-600 cursor-pointer"
                 />
-                <div className="text-[10.5px] text-slate-400 flex justify-between font-mono">
-                  <span>37.0 °C</span>
-                  <span>Standard: 37.5 °C</span>
-                  <span>38.5 °C</span>
+                <div className="text-[10px] text-slate-400 flex justify-between font-mono">
+                  <span>36.0 °C</span>
+                  <span className="text-amber-600 font-semibold">Standard: 37.5 °C</span>
+                  <span>40.0 °C (Severe Pyrexia)</span>
                 </div>
               </div>
             </div>
@@ -830,9 +1510,9 @@ export default function Settings() {
               <button
                 type="submit"
                 disabled={!canEditThresholds}
-                className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold text-xs shadow-xs flex items-center gap-2 transition-colors cursor-pointer"
+                className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs shadow-md hover:shadow-lg flex items-center gap-2 transition-all cursor-pointer"
               >
-                <Save size={14} />
+                <Save size={15} />
                 <span>Save &amp; Commit Threshold Changes</span>
               </button>
             </div>
@@ -1156,16 +1836,24 @@ export default function Settings() {
                 </div>
 
                 <pre className="p-4 rounded-xl bg-slate-900 text-emerald-400 font-mono text-xs overflow-x-auto leading-relaxed">
-                  {`// Sample MQTT Payload published to nicu/telemetry/ESP32-NICU-01
+                  {`// Sample Live Telemetry Payload published to nicu/telemetry/ESP32-NICU-01
 {
   "deviceId": "ESP32-NICU-01",
-  "bedId": "NICU-01",
-  "heartRate": 138,
-  "spo2": 98,
-  "temperature": 36.8,
-  "batteryPercent": 92,
-  "rssi": -55,
-  "signalQuality": "Good"
+  "heartRateBpm": 142.0,
+  "heartRate": 142.0,
+  "heartRateStatus": "ESTIMATED",
+  "spo2EstimatePercent": 98.5,
+  "spo2": 98.5,
+  "spo2Status": "UNVALIDATED_ESTIMATE",
+  "temperatureC": 30.2,
+  "temperature": 30.2,
+  "humidityPercent": 54.0,
+  "dht11Status": "WORKING",
+  "ppgSensorStatus": "DETECTED",
+  "irValue": 68420,
+  "redValue": 58310,
+  "wifiConnected": true,
+  "rssi": -56
 }`}
                 </pre>
               </div>
@@ -1180,7 +1868,7 @@ export default function Settings() {
                       Production ESP32 HiveMQ MQTT Transmitter Firmware
                     </strong>
                     <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
-                      Flash to ESP32 with Arduino IDE. Streams MAX30102 pulse &amp; TMP117 skin temp to HiveMQ MQTT (<code className="font-mono text-blue-600 dark:text-blue-400">broker.hivemq.com:1883</code>).
+                      Flash to ESP32 with Arduino IDE. Streams MAX30105/2 pulse, SpO₂ &amp; DHT11 temperature/humidity to HiveMQ MQTT (<code className="font-mono text-blue-600 dark:text-blue-400">broker.hivemq.com:1883</code>). Dynamic bed assignment supported!
                     </p>
                   </div>
                   <button
@@ -1226,28 +1914,40 @@ export default function Settings() {
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
                     <tr>
-                      <td className="p-2">MAX30102 / TMP117</td>
+                      <td className="p-2">MAX30105 / MAX30102</td>
                       <td className="p-2 text-blue-600 font-bold">GPIO 21</td>
                       <td className="p-2">I²C SDA</td>
-                      <td className="p-2 font-sans text-slate-500">Shared bidirectional serial data line (4.7k pull-up)</td>
+                      <td className="p-2 font-sans text-slate-500">Shared bidirectional serial data line (4.7k pull-up to 3.3V)</td>
                     </tr>
                     <tr>
-                      <td className="p-2">MAX30102 / TMP117</td>
+                      <td className="p-2">MAX30105 / MAX30102</td>
                       <td className="p-2 text-blue-600 font-bold">GPIO 22</td>
                       <td className="p-2">I²C SCL</td>
-                      <td className="p-2 font-sans text-slate-500">Shared serial clock line (400 kHz standard)</td>
+                      <td className="p-2 font-sans text-slate-500">Shared serial clock line (400 kHz Fast I2C)</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2">DHT11 Sensor</td>
+                      <td className="p-2 text-emerald-600 font-bold">GPIO 4</td>
+                      <td className="p-2">Digital 1-Wire</td>
+                      <td className="p-2 font-sans text-slate-500">Skin/Ambient temperature &amp; humidity data pin</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2">Telemetry Status LED</td>
+                      <td className="p-2 text-amber-500 font-bold">GPIO 2</td>
+                      <td className="p-2">Digital Output</td>
+                      <td className="p-2 font-sans text-slate-500">Blinks on active Wi-Fi &amp; MQTT transmission (onboard LED)</td>
                     </tr>
                     <tr>
                       <td className="p-2">Sensors VCC</td>
-                      <td className="p-2 text-red-500 font-bold">3.3V</td>
-                      <td className="p-2">Power</td>
-                      <td className="p-2 font-sans text-slate-500">Regulated 3.3V rail (do not connect to 5V)</td>
+                      <td className="p-2 text-red-500 font-bold">3.3V / 5V</td>
+                      <td className="p-2">Power Rail</td>
+                      <td className="p-2 font-sans text-slate-500">MAX30105 on 3.3V, DHT11 on 3.3V or 5V rail</td>
                     </tr>
                     <tr>
-                      <td className="p-2">Battery Telemetry</td>
-                      <td className="p-2 text-amber-500 font-bold">GPIO 34 (ADC1)</td>
-                      <td className="p-2">Voltage Divider</td>
-                      <td className="p-2 font-sans text-slate-500">Li-Po 3.7V cell through 100k/100k resistor divider</td>
+                      <td className="p-2">Common Ground</td>
+                      <td className="p-2 text-slate-500 font-bold">GND</td>
+                      <td className="p-2">Ground</td>
+                      <td className="p-2 font-sans text-slate-500">Common system reference ground</td>
                     </tr>
                   </tbody>
                 </table>

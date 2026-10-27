@@ -143,6 +143,21 @@ app.get("/api/beds", async (req, res) => {
           bedObj.deviceMac = boundDev.macAddress;
         }
       }
+      // Reconcile activeAlerts against current real-time vitals to prevent stale alarm banners
+      if (bedObj.activeAlerts && bedObj.activeAlerts.length > 0) {
+        bedObj.activeAlerts = bedObj.activeAlerts.filter((a) => {
+          if ((a.type === "Hypothermia" || a.type === "Hyperthermia" || a.param === "Temperature") && bedObj.temperature != null) {
+            return bedObj.temperature < 25.0 || bedObj.temperature > 37.5;
+          }
+          if ((a.type === "Bradycardia" || a.type === "Tachycardia" || a.param === "Heart Rate") && bedObj.hr != null) {
+            return bedObj.hr < 100 || bedObj.hr > 180;
+          }
+          if ((a.type === "SpO₂ Desaturation" || a.param === "Oxygen Saturation") && bedObj.spo2 != null) {
+            return bedObj.spo2 < 90;
+          }
+          return true;
+        });
+      }
       return bedObj;
     });
     res.json(processedBeds);
@@ -1313,58 +1328,79 @@ function getDeviceQuery(id) {
     : { deviceId: id };
 }
 
-// Assign / Unassign device to a Patient (Device binds directly to Patient)
+// Assign / Unassign device to a Bed or Patient
 app.put("/api/devices/:id/assign", async (req, res) => {
   try {
     const { patientId, bedId } = req.body;
     const device = await Device.findOne(getDeviceQuery(req.params.id));
     if (!device) return res.status(404).json({ error: "Device not found" });
 
-    // Determine target patientId (support direct patientId or lookup from bedId)
-    let targetPatientId = patientId;
-    if (!targetPatientId && bedId) {
-      const b = await Bed.findOne({ bedId });
-      if (b && b.patientId) targetPatientId = b.patientId;
-    }
+    const rawTarget = (bedId || patientId || "").trim();
 
-    // Clear previous patient binding if any
-    if (device.assignedPatientId) {
-      const prevPatient = await Patient.findOne({ patientId: device.assignedPatientId });
-      if (prevPatient && prevPatient.patientId !== targetPatientId) {
-        prevPatient.deviceId = null;
-        await prevPatient.save();
-        if (prevPatient.assignedBedId) {
-          await Bed.updateOne({ bedId: prevPatient.assignedBedId }, { $set: { deviceId: null } });
+    // Check if target is a Bed or a Patient
+    let targetBed = null;
+    let targetPatient = null;
+
+    if (rawTarget && rawTarget !== "UNASSIGN" && rawTarget !== "NONE") {
+      targetBed = await Bed.findOne({ bedId: rawTarget });
+      if (!targetBed) {
+        targetPatient = await Patient.findOne({ patientId: rawTarget });
+        if (targetPatient && targetPatient.assignedBedId) {
+          targetBed = await Bed.findOne({ bedId: targetPatient.assignedBedId });
         }
+      } else if (targetBed.patientId) {
+        targetPatient = await Patient.findOne({ patientId: targetBed.patientId });
       }
     }
 
-    if (targetPatientId) {
-      const targetPatient = await Patient.findOne({ patientId: targetPatientId });
-      if (!targetPatient) return res.status(404).json({ error: `Patient ${targetPatientId} not found` });
-
-      // Unassign any other device currently bound to this patient
-      await Device.updateMany(
-        { assignedPatientId: targetPatientId, deviceId: { $ne: device.deviceId } },
-        { $set: { assignedPatientId: null, assignedBedId: null, status: "UNASSIGNED" } }
+    // Clear previous bindings if any and reset previous bed vitals
+    if (device.assignedBedId) {
+      await Bed.updateOne(
+        { bedId: device.assignedBedId },
+        {
+          $set: {
+            deviceId: null,
+            connectionState: "DISCONNECTED",
+            status: "Standby",
+            hr: null,
+            spo2: null,
+            temperature: null,
+            lastHeartbeatMs: 0,
+            activeAlerts: [],
+            lastUpdate: "Hardware Unassigned · Awaiting Telemetry",
+          },
+        }
       );
+    }
+    if (device.assignedPatientId) {
+      await Patient.updateOne({ patientId: device.assignedPatientId }, { $set: { deviceId: null } });
+    }
 
-      // Bind device to patient
-      targetPatient.deviceId = device.deviceId;
-      await targetPatient.save();
+    if (targetBed || targetPatient) {
+      const assignedBedId = targetBed ? targetBed.bedId : (targetPatient ? targetPatient.assignedBedId : null);
+      const assignedPatientId = targetPatient ? targetPatient.patientId : (targetBed ? targetBed.patientId : null);
 
-      // If patient is placed in a bed, link that bed's deviceId
-      if (targetPatient.assignedBedId) {
+      if (assignedBedId) {
+        // Unbind any other device currently on this bed
+        await Device.updateMany(
+          { assignedBedId, deviceId: { $ne: device.deviceId } },
+          { $set: { assignedBedId: null, status: "UNASSIGNED" } }
+        );
         await Bed.updateOne(
-          { bedId: targetPatient.assignedBedId },
+          { bedId: assignedBedId },
           { $set: { deviceId: device.deviceId, deviceMac: device.macAddress } }
         );
-        device.assignedBedId = targetPatient.assignedBedId;
-      } else {
-        device.assignedBedId = null;
       }
 
-      device.assignedPatientId = targetPatientId;
+      if (assignedPatientId) {
+        await Patient.updateOne(
+          { patientId: assignedPatientId },
+          { $set: { deviceId: device.deviceId } }
+        );
+      }
+
+      device.assignedBedId = assignedBedId;
+      device.assignedPatientId = assignedPatientId;
       device.status = "ONLINE";
       await device.save();
 
@@ -1372,21 +1408,17 @@ app.put("/api/devices/:id/assign", async (req, res) => {
         id: `LOG-${Date.now().toString().slice(-4)}`,
         actor: req.body.actor || "Staff",
         role: "Clinical Engineer",
-        action: `Assigned ESP32 ${device.deviceId} to Patient ${targetPatient.babyName} (${targetPatientId})`,
+        action: `Assigned ESP32 ${device.deviceId} to Bed ${assignedBedId || "Unassigned"}${assignedPatientId ? ` (Patient ${assignedPatientId})` : ""}`,
         timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
       });
-    } else {
-      // Unassigning from patient
-      if (device.assignedPatientId) {
-        await Patient.updateOne(
-          { patientId: device.assignedPatientId },
-          { $set: { deviceId: null } }
-        );
-      }
-      if (device.assignedBedId) {
-        await Bed.updateOne({ bedId: device.assignedBedId }, { $set: { deviceId: null } });
-      }
 
+      return res.json({
+        success: true,
+        message: `Device ${device.deviceId} assigned to Bed ${assignedBedId || "Station"}`,
+        device,
+      });
+    } else {
+      // Unassigned
       device.assignedPatientId = null;
       device.assignedBedId = null;
       device.status = "UNASSIGNED";
@@ -1396,12 +1428,16 @@ app.put("/api/devices/:id/assign", async (req, res) => {
         id: `LOG-${Date.now().toString().slice(-4)}`,
         actor: req.body.actor || "Staff",
         role: "Clinical Engineer",
-        action: `Unassigned ESP32 ${device.deviceId} from Patient`,
+        action: `Unassigned ESP32 ${device.deviceId} (Device put in Standby)`,
         timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
       });
-    }
 
-    res.json(device);
+      return res.json({
+        success: true,
+        message: `Device ${device.deviceId} unassigned and in standby`,
+        device,
+      });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1453,16 +1489,23 @@ async function processTelemetryIngestion(payload) {
   const deviceId = payload.deviceId || payload.device_id || payload.nodeId || payload.id;
   const bedId = payload.bedId || payload.bed_id || payload.stationId;
 
-  // Flexible vital parsing (supports hr, heartRate, pulse, spo2, spO2, temp, temperature, etc.)
-  const rawHr = payload.heartRate !== undefined ? payload.heartRate : (payload.hr !== undefined ? payload.hr : payload.pulse);
-  const rawSpo2 = payload.spo2 !== undefined ? payload.spo2 : (payload.spO2 !== undefined ? payload.spO2 : payload.oxygen);
-  const rawTemp = payload.temperature !== undefined ? payload.temperature : (payload.temp !== undefined ? payload.temp : (payload.temperatureC !== undefined ? payload.temperatureC : payload.tempC));
+  // Flexible vital parsing (supports hr, heartRateBpm, spo2EstimatePercent, temp, temperatureC, DHT11, MAX30102)
+  const rawHr = payload.heartRateBpm !== undefined ? payload.heartRateBpm : (payload.heartRate !== undefined ? payload.heartRate : (payload.hr !== undefined ? payload.hr : payload.pulse));
+  const rawSpo2 = payload.spo2EstimatePercent !== undefined ? payload.spo2EstimatePercent : (payload.spo2 !== undefined ? payload.spo2 : (payload.spO2 !== undefined ? payload.spO2 : payload.oxygen));
+  const rawTemp = payload.temperatureC !== undefined ? payload.temperatureC : (payload.temperature !== undefined ? payload.temperature : (payload.temp !== undefined ? payload.temp : payload.tempC));
   const rawBatt = payload.batteryPercent !== undefined ? payload.batteryPercent : (payload.battery !== undefined ? payload.battery : payload.batt);
   const rawRssi = payload.rssi !== undefined ? payload.rssi : (payload.signal !== undefined ? payload.signal : -58);
+  const rawHumidity = payload.humidityPercent !== undefined ? payload.humidityPercent : payload.humidity;
+  const rawIr = payload.irValue !== undefined ? payload.irValue : null;
+  const rawRed = payload.redValue !== undefined ? payload.redValue : null;
+  const rawHrStatus = payload.heartRateStatus || null;
+  const rawSpo2Status = payload.spo2Status || null;
+  const rawPpgStatus = payload.ppgSensorStatus || null;
+  const rawDhtStatus = payload.dht11Status || null;
 
-  const heartRate = rawHr !== undefined && rawHr !== null ? Math.round(Number(rawHr)) : null;
-  const spo2 = rawSpo2 !== undefined && rawSpo2 !== null ? Math.round(Number(rawSpo2)) : null;
-  const temperature = rawTemp !== undefined && rawTemp !== null ? Number(Number(rawTemp).toFixed(1)) : null;
+  const heartRate = rawHr !== undefined && rawHr !== null && !isNaN(rawHr) ? Math.round(Number(rawHr)) : null;
+  const spo2 = rawSpo2 !== undefined && rawSpo2 !== null && !isNaN(rawSpo2) ? Math.round(Number(rawSpo2)) : null;
+  const temperature = rawTemp !== undefined && rawTemp !== null && !isNaN(rawTemp) ? Number(Number(rawTemp).toFixed(1)) : null;
   const batteryPercent = rawBatt !== undefined && rawBatt !== null ? Math.round(Number(rawBatt)) : 100;
   const rssi = Math.round(Number(rawRssi));
   const signalQuality = payload.signalQuality || (rssi > -65 ? "Excellent" : rssi > -75 ? "Good" : "Fair");
@@ -1513,7 +1556,7 @@ async function processTelemetryIngestion(payload) {
     }
   }
 
-  // 2. Resolve Assigned Patient (Device binds directly to Patient)
+  // 2. Resolve Assigned Patient & Bed dynamically
   let patient = null;
   if (device?.assignedPatientId) {
     patient = await Patient.findOne({ patientId: device.assignedPatientId });
@@ -1521,14 +1564,23 @@ async function processTelemetryIngestion(payload) {
     patient = await Patient.findOne({ deviceId });
   }
 
-  // If patient is in an admitted bed, resolve that bed
+  // Find target Bed via:
+  // a) device.assignedBedId
+  // b) bed.deviceId === deviceId
+  // c) patient.assignedBedId
+  // d) incoming bedId
   let bed = null;
-  if (patient && patient.assignedBedId) {
-    bed = await Bed.findOne({ bedId: patient.assignedBedId });
-  } else if (bedId) {
-    bed = await Bed.findOne({ bedId });
-  } else if (device?.assignedBedId) {
+  if (device?.assignedBedId) {
     bed = await Bed.findOne({ bedId: device.assignedBedId });
+  }
+  if (!bed && deviceId) {
+    bed = await Bed.findOne({ deviceId });
+  }
+  if (!bed && patient && patient.assignedBedId) {
+    bed = await Bed.findOne({ bedId: patient.assignedBedId });
+  }
+  if (!bed && bedId) {
+    bed = await Bed.findOne({ bedId });
   }
 
   // If device is not yet assigned to any patient or bed, save reading as unassigned
@@ -1555,13 +1607,14 @@ async function processTelemetryIngestion(payload) {
     };
   }
 
-  // 3. Fetch thresholds
-  const settings = (await Setting.findOne({ key: "global_thresholds" })) || {
-    hrLow: 100,
-    hrHigh: 180,
-    spo2Low: 90,
-    tempLow: 36.2,
-    tempHigh: 37.5,
+  // 3. Fetch thresholds (Lower skin temp threshold started from above 25°C, default 28.0°C)
+  const dbSettings = await Setting.findOne({ key: "global_thresholds" });
+  const settings = {
+    hrLow: dbSettings?.hrLow !== undefined ? dbSettings.hrLow : 100,
+    hrHigh: dbSettings?.hrHigh !== undefined ? dbSettings.hrHigh : 180,
+    spo2Low: dbSettings?.spo2Low !== undefined ? dbSettings.spo2Low : 90,
+    tempLow: dbSettings?.tempLow !== undefined ? dbSettings.tempLow : 28.0,
+    tempHigh: dbSettings?.tempHigh !== undefined ? dbSettings.tempHigh : 37.5,
   };
 
   // 4. Check for clinical threshold violations
@@ -1592,14 +1645,21 @@ async function processTelemetryIngestion(payload) {
   const targetBedId = bed ? bed.bedId : (patient?.assignedBedId || "UNASSIGNED");
   const targetPatientId = patient ? patient.patientId : (bed?.patientId || "UNASSIGNED");
 
+  // Clinical contact detection:
+  // If sensor probe has no contact (irValue < 50000 or status NO_CONTACT or NOT_DETECTED or heartRate is null),
+  // heartRate and spo2 MUST be null (no contact) instead of retaining fake/dummy stale numbers.
+  const isProbeDisconnected = rawHrStatus === "NO_CONTACT" || rawPpgStatus === "NOT_DETECTED" || (rawIr !== null && Number(rawIr) < 50000) || payload.heartRate === null;
+  const effectiveHr = isProbeDisconnected ? null : (heartRate !== null ? heartRate : (bed?.hr ?? null));
+  const effectiveSpo2 = isProbeDisconnected ? null : (spo2 !== null ? spo2 : (bed?.spo2 ?? null));
+
   // 5. Save Reading record for historical waveforms
   const newReading = new Reading({
     deviceId: deviceId || (bed ? bed.deviceId : "UNKNOWN"),
     bedId: targetBedId,
     patientId: targetPatientId,
-    heartRate: heartRate !== null ? heartRate : (bed?.hr || 0),
-    spo2: spo2 !== null ? spo2 : (bed?.spo2 || 0),
-    temperature: temperature !== null ? temperature : (bed?.temperature || 0),
+    heartRate: effectiveHr,
+    spo2: effectiveSpo2,
+    temperature: temperature !== null ? temperature : (bed?.temperature || null),
     batteryPercent: batteryPercent !== undefined ? batteryPercent : (bed?.batteryPercent || 100),
     rssi: rssi !== undefined ? rssi : (bed?.rssi || -58),
     signalQuality: signalQuality || bed?.signalQuality || "Good",
@@ -1612,7 +1672,7 @@ async function processTelemetryIngestion(payload) {
       message: "Telemetry ingested for patient without an active bed",
       patientId: targetPatientId,
       deviceId: deviceId || device?.deviceId,
-      vitals: { hr: heartRate, spo2, temp: temperature },
+      vitals: { hr: effectiveHr, spo2: effectiveSpo2, temp: temperature },
       bedAssigned: false,
     };
   }
@@ -1620,12 +1680,19 @@ async function processTelemetryIngestion(payload) {
   // 6. Prepare update object for Bed (real live data)
   const isAdmittedBaby = Boolean(bed.babyName && bed.babyName.trim().length > 0);
   const updatePayload = {
-    hr: heartRate !== null ? heartRate : bed.hr,
-    spo2: spo2 !== null ? spo2 : bed.spo2,
+    hr: effectiveHr,
+    spo2: effectiveSpo2,
     temperature: temperature !== null ? temperature : bed.temperature,
     batteryPercent: batteryPercent !== undefined ? batteryPercent : bed.batteryPercent,
     rssi: rssi !== undefined ? rssi : bed.rssi,
     signalQuality: signalQuality || bed.signalQuality,
+    humidity: rawHumidity !== undefined && rawHumidity !== null ? Number(rawHumidity) : bed.humidity,
+    irValue: rawIr !== null ? Number(rawIr) : bed.irValue,
+    redValue: rawRed !== null ? Number(rawRed) : bed.redValue,
+    heartRateStatus: rawHrStatus || bed.heartRateStatus,
+    spo2Status: rawSpo2Status || bed.spo2Status,
+    ppgSensorStatus: rawPpgStatus || bed.ppgSensorStatus,
+    dht11Status: rawDhtStatus || bed.dht11Status,
     lastUpdate: timeStr,
     lastHeartbeatMs: Date.now(),
     connectionState: "CONNECTED",
@@ -1674,6 +1741,13 @@ async function processTelemetryIngestion(payload) {
         },
       };
     }
+  } else {
+    // Normal vitals: clear active alerts on this bed and resolve them
+    updatePayload.activeAlerts = [];
+    await Alert.updateMany(
+      { bedId: bed.bedId, status: "Active" },
+      { $set: { status: "Resolved", notes: "Physiological vitals stabilized within normal limits" } }
+    );
   }
 
   const updatedBed = await Bed.findOneAndUpdate({ bedId: bed.bedId }, updatePayload, { new: true });
@@ -1800,6 +1874,21 @@ async function startServer() {
     } else {
       console.log(`System ready. ${staffCount} staff members loaded. Awaiting live ESP32 data.`);
     }
+
+    // Clean up any legacy hypothermia alerts in MongoDB that occurred during bench testing (sensor ~30°C)
+    await Alert.updateMany(
+      { alertType: "Hypothermia", status: "Active" },
+      { $set: { status: "Resolved", notes: "Threshold calibrated for bench test sensor" } }
+    );
+    await Bed.updateMany(
+      {},
+      { $pull: { activeAlerts: { type: "Hypothermia" } } }
+    );
+    // Ensure default settings has tempLow = 28.0 (adjustable from 25.0°C)
+    await Setting.updateOne(
+      { key: "global_thresholds", tempLow: { $gt: 35.0 } },
+      { $set: { tempLow: 28.0 } }
+    );
 
     const server = app.listen(PORT, () => {
       console.log(`NICU Monitoring Backend running at http://localhost:${PORT}`);

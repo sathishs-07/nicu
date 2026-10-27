@@ -56,12 +56,9 @@ export default function Dashboard() {
   const [isAssigning, setIsAssigning] = useState(false);
   const [mqttPingStatus, setMqttPingStatus] = useState(null);
 
-  // Available online ESP32 sensors for assignment
-  const onlineAvailableDevices = useMemo(() => {
-    return (devices || []).filter((d) => {
-      const isOnline = Boolean(d.isOnline || d.status === "ONLINE" || d.status === "AVAILABLE");
-      return isOnline;
-    });
+  // Available ESP32 sensors for assignment (includes all registered nodes)
+  const availableDevices = useMemo(() => {
+    return devices || [];
   }, [devices]);
 
   const handleAssignDeviceSubmit = async (e) => {
@@ -362,7 +359,7 @@ export default function Dashboard() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-                  Select Online Connected ESP32 Sensor:
+                  Select ESP32 Sensor Hardware:
                 </label>
                 <select
                   value={selectedDeviceId}
@@ -370,23 +367,25 @@ export default function Dashboard() {
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="UNASSIGN">-- Unbind / Release Device (Put Station in Standby) --</option>
-                  {onlineAvailableDevices.length === 0 ? (
-                    <option disabled value="">No Online ESP32 sensors currently broadcasting</option>
+                  {availableDevices.length === 0 ? (
+                    <option disabled value="">No ESP32 devices found in registry</option>
                   ) : (
-                    onlineAvailableDevices.map((d) => (
-                      <option key={d.deviceId} value={d.deviceId}>
-                        {d.deviceId} {d.assignedBedId ? `(Assigned to ${d.assignedBedId})` : "(Available Online)"} · Battery {d.batteryPercent}% · {d.signalQuality || "Good Signal"}
-                      </option>
-                    ))
+                    availableDevices.map((d) => {
+                      const isOnline = Boolean(d.isOnline || d.status === "ONLINE");
+                      return (
+                        <option key={d.deviceId} value={d.deviceId}>
+                          {isOnline ? "🟢 Live: " : "⚪ Standby: "} {d.deviceId}
+                          {d.assignedBedId ? ` (Currently on ${d.assignedBedId})` : " (Free / Ready)"}
+                          {` · Battery ${d.batteryPercent || 100}%`}
+                        </option>
+                      );
+                    })
                   )}
                   <option value="NEW">➕ Register &amp; Bind a New ESP32 Hardware ID...</option>
                 </select>
-                {onlineAvailableDevices.length === 0 && (
-                  <p className="text-[11px] text-amber-600 mt-1.5 font-medium flex items-center gap-1">
-                    <AlertTriangle size={13} />
-                    Only active online sensors can be assigned. Ensure ESP32 is powered and transmitting over MQTT.
-                  </p>
-                )}
+                <p className="text-[11px] text-slate-500 mt-1.5 font-medium">
+                  Select any ESP32 hardware device (like <code>ESP32-NICU-01</code>) to stream telemetry to Bed {assignModalBed.bedId}.
+                </p>
               </div>
 
               {selectedDeviceId === "NEW" && (

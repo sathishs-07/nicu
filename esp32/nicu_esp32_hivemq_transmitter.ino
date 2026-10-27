@@ -1,27 +1,21 @@
 /*
  * ==============================================================================
- *  NICU Continuous Vital Monitoring System — Production ESP32 HiveMQ MQTT Transmitter
+ *  NICU Continuous Vital Monitoring System — ESP32 HiveMQ MQTT Transmitter
  * ==============================================================================
  *  Target Boards : ESP32 / ESP32-S3 / ESP32-WROOM-32 / ESP32 DevKit
  *  Cloud Broker  : broker.hivemq.com (Port 1883) — 100% Free Public MQTT Broker
  *  Topic Pattern : nicu/telemetry/<DEVICE_ID> (e.g. nicu/telemetry/ESP32-NICU-01)
  *
- *  Hardware I²C Wiring:
- *    - SDA -> GPIO 21
- *    - SCL -> GPIO 22
- *    - VCC -> 3.3V (Do not connect 5V to 3.3V I2C sensors!)
- *    - GND -> GND
+ *  Hardware Pin Configuration:
+ *    - MAX30102 / MAX30105 I2C SDA -> GPIO 21
+ *    - MAX30102 / MAX30105 I2C SCL -> GPIO 22
+ *    - DHT11 Temperature & Humidity -> GPIO 4
+ *    - Status LED -> GPIO 2
  *
- *  Supported Sensors:
- *    - MAX30102 Pulse Oximeter & Heart Rate (I2C 0x57)
- *    - TMP117 High-Precision Clinical Skin Temperature (I2C 0x48)
- *
- *  Features:
- *    - Real I2C reading for MAX30102 and TMP117
- *    - Automatic finger/probe detection: If probe is attached, streams real vitals;
- *      if probe is idle or sensor absent, streams precision clinical baseline.
- *    - Automatic Wi-Fi and HiveMQ MQTT auto-reconnect
- *    - Auto-discovered & mapped dynamically by the NICU web dashboard!
+ *  BED ASSIGNMENT:
+ *    NOTE: Hardcoded BED_ID has been removed. This ESP32 acts as a portable
+ *    clinical telemetry node. You can assign or bind this DEVICE_ID to ANY
+ *    station/bed (NICU-01 through NICU-06) dynamically right from the web dashboard!
  * ==============================================================================
  */
 
@@ -30,264 +24,350 @@
 #include <Wire.h>
 #include "MAX30105.h"
 #include "heartRate.h"
+#include <DHT.h>
+#include <math.h>
 
-// ==============================================================================
-// 🟢 STEP 1: CONFIGURE YOUR WI-FI CREDENTIALS & DEVICE ID
-// ==============================================================================
-const char* WIFI_SSID     = "YOUR_WIFI_NAME";     // <-- Enter Wi-Fi or Mobile Hotspot name
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"; // <-- Enter Wi-Fi password
-const char* DEVICE_ID     = "ESP32-NICU-01";      // <-- Device ID (Assign to Patient in Settings)
+// -------- Wi-Fi credentials --------
+const char* WIFI_SSID     = "wifi";
+const char* WIFI_PASSWORD = "sathishs";
 
+// -------- Device details --------
+// Uniquely identifies this physical transmitter node.
+// Assign this device ID to ANY bed in the web dashboard!
+const char* DEVICE_ID = "ESP32-NICU-01";
 
-// ==============================================================================
-// ⚪ SENSOR & PROTOCOL CONFIGURATION
-// ==============================================================================
+// -------- HiveMQ public broker --------
 const char* MQTT_BROKER = "broker.hivemq.com";
-const int   MQTT_PORT   = 1883;
+const int MQTT_PORT = 1883;
 
+char mqttTopic[100];
+
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient);
+
+// -------- Pin configuration --------
 #define I2C_SDA 21
 #define I2C_SCL 22
-#define TMP117_ADDR 0x48
+#define DHT_PIN 4
+#define DHT_TYPE DHT11
+#define WIFI_LED_PIN 2
 
-MAX30105 particleSensor;
-bool max30102_found = false;
-bool tmp117_found = false;
+// Change to true if your onboard LED is active LOW.
+#define LED_ACTIVE_LOW false
 
-// Optical pulse detection buffers
-const byte RATE_SIZE = 4;
-byte rates[RATE_SIZE];
-byte rateSpot = 0;
+// -------- Sensors --------
+MAX30105 ppgSensor;
+DHT dht(DHT_PIN, DHT_TYPE);
+
+bool ppgFound = false;
+bool dhtReadingOK = false;
+bool ppgContact = false;
+
+// -------- PPG values --------
+long irValue = 0;
+long redValue = 0;
 long lastBeat = 0;
-float beatsPerMinute = 0;
-int beatAvg = 138;
-int currentSpo2 = 98;
-float currentTemp = 36.8;
 
-WiFiClient espClient;
-PubSubClient mqttClient(espClient);
+float heartRate = NAN;
+float spo2Estimate = NAN;
 
-unsigned long lastTransmitTime = 0;
-const unsigned long TRANSMIT_INTERVAL_MS = 1000; // 1 Hz stream
+// -------- Temperature & Humidity --------
+float temperatureC = NAN;
+float humidity = NAN;
 
-// ─── TMP117 I2C Temperature Reader ───────────────────────────
-float readTMP117() {
-  Wire.beginTransmission(TMP117_ADDR);
-  Wire.write(0x00); // Temperature result register
-  if (Wire.endTransmission() != 0) return -999.0;
+// -------- Timers --------
+unsigned long lastDHTRead = 0;
+unsigned long lastPublish = 0;
+unsigned long lastWiFiAttempt = 0;
+unsigned long lastMQTTAttempt = 0;
+unsigned long lastLEDChange = 0;
 
-  Wire.requestFrom(TMP117_ADDR, 2);
-  if (Wire.available() == 2) {
-    int16_t raw = (Wire.read() << 8) | Wire.read();
-    return raw * 0.0078125; // TMP117 resolution is 0.0078125°C per LSB
-  }
-  return -999.0;
+const unsigned long PUBLISH_INTERVAL = 1000; // 1 Hz telemetry
+const unsigned long DHT_INTERVAL = 2000;     // 2 sec DHT cycle
+
+bool ledState = false;
+
+// =================================================
+// LED STATUS INDICATOR
+// =================================================
+void setLED(bool on) {
+  ledState = on;
+  digitalWrite(WIFI_LED_PIN, LED_ACTIVE_LOW ? !on : on);
 }
 
-// ─── Wi-Fi Connection Manager ────────────────────────────────
-void connectWiFi() {
+void updateLED() {
+  // Steady 500ms blink while connected to Wi-Fi
+  if (WiFi.status() == WL_CONNECTED) {
+    if (millis() - lastLEDChange >= 500) {
+      lastLEDChange = millis();
+      setLED(!ledState);
+    }
+  } else {
+    // Fast 150ms flash while searching / disconnected
+    if (millis() - lastLEDChange >= 150) {
+      lastLEDChange = millis();
+      setLED(!ledState);
+    }
+  }
+}
+
+// =================================================
+// WIFI AUTO-RECONNECT
+// =================================================
+void maintainWiFi() {
   if (WiFi.status() == WL_CONNECTED) return;
 
-  Serial.println();
-  Serial.print("[Wi-Fi] Connecting to: \"");
-  Serial.print(WIFI_SSID);
-  Serial.println("\" ...");
+  if (lastWiFiAttempt != 0 && millis() - lastWiFiAttempt < 10000) {
+    return;
+  }
 
+  lastWiFiAttempt = millis();
+
+  Serial.println("Connecting to Wi-Fi...");
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+}
 
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 25) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
+// =================================================
+// MQTT AUTO-RECONNECT (HiveMQ Cloud Public Broker)
+// =================================================
+void maintainMQTT() {
+  if (WiFi.status() != WL_CONNECTED || mqttClient.connected()) {
+    return;
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println();
-    Serial.println("  ✓ Wi-Fi Connected Successfully!");
-    Serial.print("  ✓ ESP32 IP Address : ");
-    Serial.println(WiFi.localIP());
-    Serial.print("  ✓ Signal Strength  : ");
-    Serial.print(WiFi.RSSI());
-    Serial.println(" dBm");
+  if (lastMQTTAttempt != 0 && millis() - lastMQTTAttempt < 3000) {
+    return;
+  }
+
+  lastMQTTAttempt = millis();
+
+  String clientId = "NICU-" + String((uint32_t)ESP.getEfuseMac(), HEX);
+
+  Serial.print("Connecting to HiveMQ (broker.hivemq.com:1883)... ");
+
+  if (mqttClient.connect(clientId.c_str())) {
+    Serial.println("CONNECTED");
+    Serial.print("Publish Topic: ");
+    Serial.println(mqttTopic);
   } else {
-    Serial.println();
-    Serial.println("  ✗ Wi-Fi Connection Timed Out!");
-    Serial.println("  -> Check SSID/password and ensure 2.4GHz Wi-Fi is enabled.");
+    Serial.print("FAILED, state = ");
+    Serial.println(mqttClient.state());
   }
 }
 
-// ─── HiveMQ MQTT Reconnection Manager ─────────────────────────
-void reconnectMQTT() {
-  while (!mqttClient.connected()) {
-    if (WiFi.status() != WL_CONNECTED) {
-      connectWiFi();
+// =================================================
+// INITIALIZE SENSORS
+// =================================================
+void initializeSensors() {
+  Wire.begin(I2C_SDA, I2C_SCL);
+
+  Serial.println("Checking MAX30105 / MAX30102 on I2C...");
+
+  if (ppgSensor.begin(Wire, I2C_SPEED_FAST)) {
+    ppgFound = true;
+
+    ppgSensor.setup();
+    ppgSensor.setPulseAmplitudeRed(0x1F);
+    ppgSensor.setPulseAmplitudeIR(0x1F);
+    ppgSensor.setPulseAmplitudeGreen(0);
+
+    Serial.println("PPG sensor detected and initialized.");
+  } else {
+    Serial.println("PPG sensor NOT detected on I2C bus.");
+  }
+
+  dht.begin();
+  Serial.println("DHT11 initialized on GPIO 4; checking readings...");
+}
+
+// =================================================
+// READ PPG (MAX30102 / MAX30105)
+// =================================================
+void readPPG() {
+  if (!ppgFound) {
+    ppgContact = false;
+    heartRate = NAN;
+    spo2Estimate = NAN;
+    return;
+  }
+
+  irValue = ppgSensor.getIR();
+  redValue = ppgSensor.getRed();
+
+  // Optical contact threshold (< 50000 indicates poor contact or probe detached)
+  if (irValue < 50000) {
+    ppgContact = false;
+    heartRate = NAN;
+    spo2Estimate = NAN;
+    lastBeat = 0;
+    return;
+  }
+
+  ppgContact = true;
+
+  if (checkForBeat(irValue)) {
+    unsigned long now = millis();
+
+    if (lastBeat != 0) {
+      float bpm = 60000.0 / (now - lastBeat);
+
+      if (bpm >= 30 && bpm <= 240) {
+        heartRate = bpm;
+      }
     }
 
-    Serial.print("[HiveMQ MQTT] Connecting to broker.hivemq.com:1883 ... ");
+    lastBeat = now;
+  }
 
-    // Generate unique client ID to prevent collisions on public broker
-    String clientId = "NICU_ESP32_" + String(DEVICE_ID) + "_" + String(random(0xffff), HEX);
+  // Mark old heart-rate readings as unavailable if no beat in 5 seconds
+  if (lastBeat == 0 || millis() - lastBeat > 5000) {
+    heartRate = NAN;
+  }
 
-    if (mqttClient.connect(clientId.c_str())) {
-      Serial.println("CONNECTED!");
-      Serial.print("  ✓ Publishing on topic : nicu/telemetry/");
-      Serial.println(DEVICE_ID);
-      Serial.print("  ✓ Auto-mapped to Bay  : ");
-      Serial.println(TARGET_BED_ID);
-      Serial.println("==========================================================================");
+  // Dual-wavelength optical SpO2 estimate
+  if (irValue > 0 && redValue > 0) {
+    float ratio = (float)redValue / (float)irValue;
+    float estimate = 110.0 - (18.0 * ratio);
+
+    if (estimate >= 70.0 && estimate <= 100.0) {
+      spo2Estimate = estimate;
     } else {
-      Serial.print("FAILED (rc=");
-      Serial.print(mqttClient.state());
-      Serial.println("). Retrying in 3 seconds...");
-      delay(3000);
+      spo2Estimate = NAN;
     }
+  } else {
+    spo2Estimate = NAN;
   }
 }
 
-// ─── Setup Routine ───────────────────────────────────────────
+// =================================================
+// READ DHT11 (Skin / Incubator Temperature & Humidity)
+// =================================================
+void readDHT() {
+  if (millis() - lastDHTRead < DHT_INTERVAL) return;
+
+  lastDHTRead = millis();
+
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+
+  if (!isnan(t) && !isnan(h)) {
+    temperatureC = t;
+    humidity = h;
+    dhtReadingOK = true;
+  } else {
+    temperatureC = NAN;
+    humidity = NAN;
+    dhtReadingOK = false;
+    Serial.println("DHT11 read failed.");
+  }
+}
+
+// =================================================
+// CONVERT VALUES FOR JSON
+// =================================================
+String jsonNumber(float value, int decimals) {
+  if (isnan(value) || isinf(value)) {
+    return "null";
+  }
+  return String(value, decimals);
+}
+
+// =================================================
+// PUBLISH TO WEBSITE THROUGH MQTT
+// Dynamic bed mapping: Device streams with deviceId only.
+// The website automatically routes to whichever bed is assigned!
+// =================================================
+void publishData() {
+  String hrStatus;
+  String spo2Status;
+
+  if (!ppgFound) {
+    hrStatus = "SENSOR_NOT_DETECTED";
+    spo2Status = "SENSOR_NOT_DETECTED";
+  } else if (!ppgContact) {
+    hrStatus = "NO_CONTACT";
+    spo2Status = "NO_CONTACT";
+  } else {
+    hrStatus = isnan(heartRate) ? "NO_VALID_READING" : "ESTIMATED";
+    spo2Status = isnan(spo2Estimate) ? "NO_VALID_READING" : "UNVALIDATED_ESTIMATE";
+  }
+
+  String payload = "{";
+  payload += "\"deviceId\":\"" + String(DEVICE_ID) + "\",";
+  payload += "\"simulationMode\":false,";
+  payload += "\"heartRateBpm\":" + jsonNumber(heartRate, 1) + ",";
+  payload += "\"heartRate\":" + jsonNumber(heartRate, 1) + ",";
+  payload += "\"heartRateStatus\":\"" + hrStatus + "\",";
+  payload += "\"spo2EstimatePercent\":" + jsonNumber(spo2Estimate, 1) + ",";
+  payload += "\"spo2\":" + jsonNumber(spo2Estimate, 1) + ",";
+  payload += "\"spo2Status\":\"" + spo2Status + "\",";
+  payload += "\"temperatureC\":" + jsonNumber(temperatureC, 1) + ",";
+  payload += "\"temperature\":" + jsonNumber(temperatureC, 1) + ",";
+  payload += "\"humidityPercent\":" + jsonNumber(humidity, 1) + ",";
+  payload += "\"dht11Status\":\"" +
+             String(dhtReadingOK ? "WORKING" : "NO_VALID_READING") + "\",";
+  payload += "\"ppgSensorStatus\":\"" +
+             String(ppgFound ? "DETECTED" : "NOT_DETECTED") + "\",";
+  payload += "\"irValue\":" + String(irValue) + ",";
+  payload += "\"redValue\":" + String(redValue) + ",";
+  payload += "\"wifiConnected\":";
+  payload += (WiFi.status() == WL_CONNECTED ? "true," : "false,");
+  payload += "\"rssi\":";
+  payload += (WiFi.status() == WL_CONNECTED ?
+              String(WiFi.RSSI()) : "null");
+  payload += "}";
+
+  if (mqttClient.connected()) {
+    bool ok = mqttClient.publish(mqttTopic, payload.c_str());
+
+    Serial.println(ok ? "✓ [MQTT PUBLISH OK]" : "✗ [MQTT PUBLISH FAILED]");
+    Serial.println(payload);
+  } else {
+    Serial.println("MQTT disconnected; message not sent.");
+  }
+}
+
+// =================================================
+// SETUP
+// =================================================
 void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  Serial.println();
-  Serial.println("==========================================================================");
-  Serial.println("   NICU VITAL MONITOR — ESP32 HIVEMQ MQTT TELEMETRY TRANSMITTER           ");
-  Serial.println("==========================================================================");
-  Serial.print("  Device ID   : "); Serial.println(DEVICE_ID);
-  Serial.print("  Station Bay : "); Serial.println(TARGET_BED_ID);
-  Serial.print("  MQTT Broker : broker.hivemq.com:1883\n");
-  Serial.println("==========================================================================");
+  pinMode(WIFI_LED_PIN, OUTPUT);
+  setLED(false);
 
-  // Initialize I2C Bus on GPIO 21 (SDA) and GPIO 22 (SCL)
-  Wire.begin(I2C_SDA, I2C_SCL);
+  snprintf(mqttTopic, sizeof(mqttTopic), "nicu/telemetry/%s", DEVICE_ID);
 
-  // 1. Initialize MAX30102 Optical Sensor
-  if (particleSensor.begin(Wire, I2C_SPEED_FAST)) {
-    max30102_found = true;
-    particleSensor.setup();
-    particleSensor.setPulseAmplitudeRed(0x0A);
-    particleSensor.setPulseAmplitudeGreen(0);
-    Serial.println("  ✓ MAX30102 Optical Sensor Online (I2C 0x57)");
-  } else {
-    Serial.println("  ! MAX30102 not detected. Precision physiological baseline active.");
-  }
-
-  // 2. Check TMP117 Temperature Sensor
-  float tCheck = readTMP117();
-  if (tCheck > -100.0 && tCheck < 150.0) {
-    tmp117_found = true;
-    Serial.print("  ✓ TMP117 High-Precision Sensor Online (0x48): ");
-    Serial.print(tCheck, 2);
-    Serial.println(" °C");
-  } else {
-    Serial.println("  ! TMP117 not detected on 0x48. Using clinical baseline.");
-  }
-
-  connectWiFi();
   mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
-  mqttClient.setBufferSize(512);
+  mqttClient.setBufferSize(768);
+
+  initializeSensors();
+  maintainWiFi();
+
+  Serial.println("NICU MQTT Vital Transmitter Initialized.");
+  Serial.println("Device ID: " + String(DEVICE_ID));
+  Serial.println("Bed: Dynamic (Assign to any bed on web dashboard)");
 }
 
-// ─── Telemetry Sender Helper ─────────────────────────────────
-void sendDeviceTelemetry(const char* devId, int hrVal, int spo2Val, float tempVal) {
-  int battery = 94;
-  long rssi = WiFi.RSSI();
-  String signal = (rssi > -65) ? "Excellent" : (rssi > -75) ? "Good" : "Fair";
-
-  String topic = "nicu/telemetry/" + String(devId);
-
-  // Formulate standard JSON telemetry payload (device is bound to patient in settings)
-  String payload = "{";
-  payload += "\"deviceId\":\"" + String(devId) + "\",";
-  payload += "\"heartRate\":" + String(hrVal) + ",";
-  payload += "\"spo2\":" + String(spo2Val) + ",";
-  payload += "\"temperature\":" + String(tempVal, 1) + ",";
-  payload += "\"batteryPercent\":" + String(battery) + ",";
-  payload += "\"rssi\":" + String(rssi) + ",";
-  payload += "\"signalQuality\":\"" + signal + "\"";
-  payload += "}";
-
-  boolean published = mqttClient.publish(topic.c_str(), payload.c_str());
-  if (published) {
-    Serial.print("✓ [HiveMQ MQTT] [");
-    Serial.print(devId);
-    Serial.print("] HR: ");
-    Serial.print(hrVal);
-    Serial.print(" bpm | SpO2: ");
-    Serial.print(spo2Val);
-    Serial.print("% | Temp: ");
-    Serial.print(tempVal, 1);
-    Serial.println(" °C");
-  } else {
-    Serial.println("✗ [HiveMQ MQTT] Publish failed! Checking broker connection...");
-  }
-}
-
-// ─── Main Transmission Loop ──────────────────────────────────
+// =================================================
+// MAIN LOOP
+// =================================================
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) {
-    connectWiFi();
-  }
-
-  if (!mqttClient.connected()) {
-    reconnectMQTT();
-  }
+  maintainWiFi();
+  maintainMQTT();
 
   mqttClient.loop();
+  updateLED();
 
-  // Read MAX30102 real-time photoplethysmogram
-  if (max30102_found) {
-    long irValue = particleSensor.getIR();
+  readPPG();
+  readDHT();
 
-    // Finger/infant probe attached (IR > 50,000)
-    if (irValue > 50000) {
-      if (checkForBeat(irValue)) {
-        long delta = millis() - lastBeat;
-        lastBeat = millis();
-
-        beatsPerMinute = 60 / (delta / 1000.0);
-        if (beatsPerMinute < 255 && beatsPerMinute > 60) {
-          rates[rateSpot++] = (byte)beatsPerMinute;
-          rateSpot %= RATE_SIZE;
-
-          beatAvg = 0;
-          for (byte x = 0; x < RATE_SIZE; x++) beatAvg += rates[x];
-          beatAvg /= RATE_SIZE;
-        }
-      }
-
-      long redValue = particleSensor.getRed();
-      if (redValue > 1000 && irValue > 1000) {
-        float ratio = ((float)redValue / (float)irValue);
-        currentSpo2 = constrain((int)(110 - (18 * ratio)), 88, 100);
-      }
-    } else {
-      // Probe idle: hold stable clinical test baseline
-      beatAvg = 138 + ((millis() / 2000) % 5);
-      currentSpo2 = 98;
-    }
-  } else {
-    // Physiological Engine backup
-    beatAvg = 140 + ((millis() / 2500) % 6);
-    currentSpo2 = 98;
+  if (millis() - lastPublish >= PUBLISH_INTERVAL) {
+    lastPublish = millis();
+    publishData();
   }
 
-  // Read TMP117 Skin Temperature
-  if (tmp117_found) {
-    float tRead = readTMP117();
-    if (tRead > 30.0 && tRead < 45.0) {
-      currentTemp = tRead;
-    }
-  } else {
-    currentTemp = 36.7 + ((millis() / 5000) % 3) * 0.1;
-  }
-
-  unsigned long now = millis();
-  if (now - lastTransmitTime >= TRANSMIT_INTERVAL_MS) {
-    lastTransmitTime = now;
-    sendDeviceTelemetry(DEVICE_ID, beatAvg, currentSpo2, currentTemp);
-  }
-
-  delay(20);
+  delay(10);
 }

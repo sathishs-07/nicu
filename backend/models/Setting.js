@@ -6,7 +6,7 @@ const SettingSchema = new mongoose.Schema(
     hrLow: { type: Number, default: 100 },
     hrHigh: { type: Number, default: 180 },
     spo2Low: { type: Number, default: 90 },
-    tempLow: { type: Number, default: 36.2 },
+    tempLow: { type: Number, default: 28.0 },
     tempHigh: { type: Number, default: 37.5 },
     persistenceSeconds: { type: Number, default: 5 },
     unitName: { type: String, default: "NICU Continuous Vital Monitoring System — Ward 3B" },

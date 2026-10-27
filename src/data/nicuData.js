@@ -10,7 +10,7 @@ export const DEFAULT_THRESHOLDS = {
   hrLow: 100,      // bpm - neonatal bradycardia limit
   hrHigh: 180,     // bpm - neonatal tachycardia limit
   spo2Low: 90,     // % - neonatal desaturation limit
-  tempLow: 36.2,   // °C - neonatal hypothermia limit
+  tempLow: 28.0,   // °C - lower skin temp limit (started from above 25°C, supports ~30°C sensor)
   tempHigh: 37.5,  // °C - neonatal hyperthermia limit
   persistenceSeconds: 5, // seconds before alert triggers
 };

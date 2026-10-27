@@ -31,8 +31,16 @@ import { useApp } from "../context/AppContext";
 
 export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice }) {
   const navigate = useNavigate();
-  const { devices, sanitizeBed } = useApp();
+  const { devices, sanitizeBed, thresholds } = useApp();
   const [isSanitizing, setIsSanitizing] = useState(false);
+
+  const activeThresholds = thresholds || {
+    hrLow: 100,
+    hrHigh: 180,
+    spo2Low: 90,
+    tempLow: 36.2,
+    tempHigh: 37.5,
+  };
 
   // Link any device assigned to this bed
   const linkedDevice = (devices || []).find(
@@ -46,6 +54,16 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
     ? Math.max(0, Math.round((Date.now() - bed.lastHeartbeatMs) / 1000))
     : 9999;
   const isLiveOnline = isHeartbeatPresent && timeSinceHeartbeatSec <= 15;
+
+  // Signal Quality Index for PPG
+  let sqiState = "good";
+  if (!isLiveOnline || (bed.irValue !== undefined && bed.irValue < 50000) || bed.ppgSensorStatus === "NOT_DETECTED" || bed.heartRateStatus === "NO_CONTACT" || bed.hr == null) {
+    sqiState = "poor_contact";
+  } else if (bed.heartRateStatus === "NO_VALID_READING" || bed.hr < 45 || bed.hr > 220) {
+    sqiState = "noisy";
+  } else {
+    sqiState = "good";
+  }
 
   // Check if bed has an active admitted patient
   const hasActivePatient = Boolean(
@@ -115,8 +133,31 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
   }
 
   // ── Derive Status for Admitted Patient Bed ──
-  const hasAlerts = bed.activeAlerts && bed.activeAlerts.length > 0;
-  const hasUrgentAlert = hasAlerts && bed.activeAlerts.some((a) => a.priority === "Urgent" || a.priority === "High");
+  // Filter activeAlerts against current real-time vitals to prevent displaying stale alerts
+  const physicallyActiveAlerts = (bed.activeAlerts || []).filter((alert) => {
+    const isTempAlert = alert.type === "Hypothermia" || alert.type === "Hyperthermia" || alert.param === "Temperature";
+    if (isTempAlert && bed.temperature != null) {
+      if (bed.temperature >= activeThresholds.tempLow && bed.temperature <= activeThresholds.tempHigh) {
+        return false; // Vitals normalized
+      }
+    }
+    const isHrAlert = alert.type === "Bradycardia" || alert.type === "Tachycardia" || alert.param === "Heart Rate";
+    if (isHrAlert && bed.hr != null) {
+      if (bed.hr >= activeThresholds.hrLow && bed.hr <= activeThresholds.hrHigh) {
+        return false;
+      }
+    }
+    const isSpo2Alert = alert.type === "SpO₂ Desaturation" || alert.param === "Oxygen Saturation";
+    if (isSpo2Alert && bed.spo2 != null) {
+      if (bed.spo2 >= activeThresholds.spo2Low) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const hasAlerts = physicallyActiveAlerts.length > 0;
+  const hasUrgentAlert = hasAlerts && physicallyActiveAlerts.some((a) => a.priority === "Urgent" || a.priority === "High");
 
   let statusBadge = {
     label: "LIVE TELEMETRY",
@@ -209,127 +250,145 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
           </div>
         </div>
 
-        {/* ── Arterial PPG Waveform Canvas ── */}
-        <div className="my-2.5 rounded-2xl overflow-hidden border border-slate-800 bg-[#070e22] shadow-inner">
-          <div className="px-3 py-1 flex items-center justify-between text-[10px] font-mono border-b border-slate-800/80 bg-slate-950/70">
-            <span className="flex items-center gap-1.5 text-cyan-300 font-bold">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-              CONTINUOUS ARTERIAL PPG
-            </span>
-            <span className="text-slate-400">
-              {isLiveOnline ? `${bed.hr || 140} BPM · 1 Hz STREAM` : "OFFLINE / STANDBY"}
-            </span>
-          </div>
+        {/* ── Arterial PPG Waveform Canvas with SQI Badge ── */}
+        <div className="my-2.5">
           <MedicalPPGWaveform
             heartRate={bed.hr || 140}
             spo2={bed.spo2 || 98}
             isLive={isLiveOnline}
             height={55}
             showControls={false}
-            strokeColor="#38bdf8"
-            fillColor="rgba(56, 189, 248, 0.15)"
-            backgroundColor="#070e22"
+            forcedState={sqiState}
+            strokeColor={
+              sqiState === "good"
+                ? "#15803d"
+                : sqiState === "noisy"
+                  ? "#c2410c"
+                  : "#b91c1c"
+            }
+            backgroundColor="transparent"
           />
         </div>
 
-        {/* ── Center: Vital Signs 3-Col Modern Tiles ── */}
+        {/* ── Center: Vital Signs 3-Col Modern Tiles (Dynamic Thresholds) ── */}
         <div className="grid grid-cols-3 gap-2 my-2.5">
           {/* Heart Rate Tile */}
           <div
-            className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${!isLiveOnline
+            className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${
+              !isLiveOnline
                 ? "bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-400"
-                : bed.hr < 100 || bed.hr > 180
+                : bed.hr < activeThresholds.hrLow || bed.hr > activeThresholds.hrHigh
                   ? "bg-rose-50/80 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800/80 shadow-xs ring-1 ring-rose-500/20"
                   : "bg-slate-50/70 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/60"
-              }`}
+            }`}
           >
             <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
               <span className="flex items-center gap-1">
-                <Heart size={13} className={isLiveOnline ? "text-rose-500 animate-pulse" : "text-slate-400"} />
+                <Heart
+                  size={13}
+                  className={isLiveOnline ? "text-rose-500 animate-pulse" : "text-slate-400"}
+                />
                 HR
               </span>
               <span className="font-mono text-[10px]">bpm</span>
             </div>
             <div className="my-1">
               <div
-                className={`text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none ${!isLiveOnline
+                className={`text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none ${
+                  !isLiveOnline || bed.hr == null
                     ? "text-slate-400"
-                    : bed.hr < 100 || bed.hr > 180
+                    : bed.hr < activeThresholds.hrLow || bed.hr > activeThresholds.hrHigh
                       ? "text-rose-600 dark:text-rose-400"
                       : "text-slate-900 dark:text-slate-100"
-                  }`}
+                }`}
               >
-                {!isLiveOnline ? "--" : bed.hr}
+                {!isLiveOnline || bed.hr == null ? "--" : bed.hr}
               </div>
             </div>
             <div className="text-[10px] font-mono text-slate-400 flex justify-between">
-              <span>{isLiveOnline ? "100-180" : "Offline"}</span>
+              <span>
+                {isLiveOnline && bed.hr != null ? `${activeThresholds.hrLow}-${activeThresholds.hrHigh}` : "Offline"}
+              </span>
             </div>
           </div>
 
           {/* SpO2 Tile */}
           <div
-            className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${!isLiveOnline
+            className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${
+              !isLiveOnline || bed.spo2 == null
                 ? "bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-400"
-                : bed.spo2 < 90
+                : bed.spo2 < activeThresholds.spo2Low
                   ? "bg-rose-50/80 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800/80 shadow-xs ring-1 ring-rose-500/20"
                   : "bg-slate-50/70 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/60"
-              }`}
+            }`}
           >
             <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
               <span className="flex items-center gap-1">
-                <Droplets size={13} className={isLiveOnline ? "text-cyan-500" : "text-slate-400"} />
+                <Droplets
+                  size={13}
+                  className={isLiveOnline && bed.spo2 != null ? "text-cyan-500" : "text-slate-400"}
+                />
                 SpO₂
               </span>
               <span className="font-mono text-[10px]">%</span>
             </div>
             <div className="my-1">
               <div
-                className={`text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none ${!isLiveOnline
+                className={`text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none ${
+                  !isLiveOnline || bed.spo2 == null
                     ? "text-slate-400"
-                    : bed.spo2 < 90
+                    : bed.spo2 < activeThresholds.spo2Low
                       ? "text-rose-600 dark:text-rose-400"
                       : "text-slate-900 dark:text-slate-100"
-                  }`}
+                }`}
               >
-                {!isLiveOnline ? "--" : `${bed.spo2}%`}
+                {!isLiveOnline || bed.spo2 == null ? "--" : `${bed.spo2}%`}
               </div>
             </div>
             <div className="text-[10px] font-mono text-slate-400 flex justify-between">
-              <span>{isLiveOnline ? "≥90%" : "Offline"}</span>
+              <span>{isLiveOnline && bed.spo2 != null ? `≥${activeThresholds.spo2Low}%` : "Offline"}</span>
             </div>
           </div>
 
           {/* Temperature Tile */}
           <div
-            className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${!isLiveOnline
+            className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${
+              !isLiveOnline
                 ? "bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-400"
-                : bed.temperature < 36.2 || bed.temperature > 37.5
+                : bed.temperature < activeThresholds.tempLow || bed.temperature > activeThresholds.tempHigh
                   ? "bg-amber-50/80 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800/80 shadow-xs ring-1 ring-amber-500/20"
                   : "bg-slate-50/70 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/60"
-              }`}
+            }`}
           >
             <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
               <span className="flex items-center gap-1">
-                <Thermometer size={13} className={isLiveOnline ? "text-amber-500" : "text-slate-400"} />
+                <Thermometer
+                  size={13}
+                  className={isLiveOnline ? "text-amber-500" : "text-slate-400"}
+                />
                 Temp
               </span>
               <span className="font-mono text-[10px]">°C</span>
             </div>
             <div className="my-1">
               <div
-                className={`text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none ${!isLiveOnline
+                className={`text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none ${
+                  !isLiveOnline
                     ? "text-slate-400"
-                    : bed.temperature < 36.2 || bed.temperature > 37.5
+                    : bed.temperature < activeThresholds.tempLow || bed.temperature > activeThresholds.tempHigh
                       ? "text-amber-600 dark:text-amber-400"
                       : "text-slate-900 dark:text-slate-100"
-                  }`}
+                }`}
               >
                 {!isLiveOnline ? "--" : `${bed.temperature}°`}
               </div>
             </div>
             <div className="text-[10px] font-mono text-slate-400 flex justify-between">
-              <span>{isLiveOnline ? "36.2-37.5" : "Offline"}</span>
+              <span>
+                {isLiveOnline
+                  ? `${activeThresholds.tempLow}-${activeThresholds.tempHigh}`
+                  : "Offline"}
+              </span>
             </div>
           </div>
         </div>
@@ -384,10 +443,10 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
               <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/70 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-[11px] font-semibold animate-pulse">
                 <span className="flex items-center gap-1.5">
                   <AlertTriangle size={13} className="text-rose-600" />
-                  {bed.activeAlerts[0].type} ({bed.activeAlerts[0].value})
+                  {physicallyActiveAlerts[0].type} ({physicallyActiveAlerts[0].value})
                 </span>
                 <span className="font-mono text-[10px]">
-                  {bed.activeAlerts[0].duration || "Active"}
+                  {physicallyActiveAlerts[0].duration || "Active"}
                 </span>
               </div>
             ) : !isLiveOnline ? (
@@ -421,7 +480,7 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
               : "border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
             }`}
         >
-          Alerts {hasAlerts && `(${bed.activeAlerts.length})`}
+          Alerts {hasAlerts && `(${physicallyActiveAlerts.length})`}
         </button>
         <button
           onClick={async () => {

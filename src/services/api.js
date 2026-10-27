@@ -245,10 +245,10 @@ export const api = {
     });
   },
 
-  assignDevice: async (deviceId, patientId) => {
+  assignDevice: async (deviceId, targetId) => {
     return safeFetch(`/devices/${deviceId}/assign`, {
       method: "PUT",
-      body: JSON.stringify({ patientId }),
+      body: JSON.stringify({ patientId: targetId, bedId: targetId }),
     });
   },
 
