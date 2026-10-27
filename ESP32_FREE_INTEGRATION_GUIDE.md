@@ -165,8 +165,8 @@ void loop() {
   }
 
   // If no finger / foot clip placed on MAX30102, default to clinical baseline
-  int currentHr = (irValue < 50000) ? 142 : beatAvg;
-  int currentSpo2 = (irValue < 50000) ? 97 : constrain(map(irValue, 50000, 100000, 94, 99), 90, 100);
+  int currentHr = (irValue < 7000) ? 142 : beatAvg;
+  int currentSpo2 = (irValue < 7000) ? 97 : constrain(map(irValue, 7000, 100000, 94, 99), 90, 100);
 
   // 2. Read Clinical Skin Temperature from TMP117
   float currentTemp = 36.7;

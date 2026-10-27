@@ -57,7 +57,7 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
 
   // Signal Quality Index for PPG
   let sqiState = "good";
-  if (!isLiveOnline || (bed.irValue !== undefined && bed.irValue < 50000) || bed.ppgSensorStatus === "NOT_DETECTED" || bed.heartRateStatus === "NO_CONTACT" || bed.hr == null) {
+  if (!isLiveOnline || (bed.irValue !== undefined && bed.irValue < 7000) || bed.ppgSensorStatus === "NOT_DETECTED" || bed.heartRateStatus === "NO_CONTACT" || bed.hr == null) {
     sqiState = "poor_contact";
   } else if (bed.heartRateStatus === "NO_VALID_READING" || bed.hr < 45 || bed.hr > 220) {
     sqiState = "noisy";
@@ -67,11 +67,8 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
 
   // Check if bed has an active admitted patient
   const hasActivePatient = Boolean(
-    bed.babyName &&
-    bed.babyName.trim().length > 0 &&
-    bed.patientId &&
-    bed.patientId.trim().length > 0 &&
-    bed.status !== "Standby"
+    (bed.babyName && bed.babyName.trim().length > 0) ||
+    (bed.patientId && bed.patientId.trim().length > 0)
   );
 
   // ── Render Clean Available Bed Slot if Patient Discharged or Bed Unoccupied ──

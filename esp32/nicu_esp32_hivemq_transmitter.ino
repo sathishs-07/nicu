@@ -66,7 +66,11 @@ bool ppgContact = false;
 // -------- PPG values --------
 long irValue = 0;
 long redValue = 0;
+const byte RATE_SIZE = 4;
+byte rates[RATE_SIZE];
+byte rateSpot = 0;
 long lastBeat = 0;
+int beatAvg = 0;
 
 float heartRate = NAN;
 float spo2Estimate = NAN;
@@ -195,12 +199,15 @@ void readPPG() {
   irValue = ppgSensor.getIR();
   redValue = ppgSensor.getRed();
 
-  // Optical contact threshold (< 50000 indicates poor contact or probe detached)
-  if (irValue < 50000) {
+  // Optical contact threshold (< 7000 indicates poor contact or probe detached / finger removed)
+  if (irValue < 7000) {
     ppgContact = false;
     heartRate = NAN;
     spo2Estimate = NAN;
     lastBeat = 0;
+    beatAvg = 0;
+    rateSpot = 0;
+    for (byte i = 0; i < RATE_SIZE; i++) rates[i] = 0;
     return;
   }
 
@@ -210,10 +217,27 @@ void readPPG() {
     unsigned long now = millis();
 
     if (lastBeat != 0) {
-      float bpm = 60000.0 / (now - lastBeat);
+      long delta = now - lastBeat;
+      float bpm = 60000.0 / delta;
 
       if (bpm >= 30 && bpm <= 240) {
-        heartRate = bpm;
+        rates[rateSpot++] = (byte)bpm;
+        rateSpot %= RATE_SIZE;
+
+        int total = 0;
+        byte count = 0;
+        for (byte x = 0; x < RATE_SIZE; x++) {
+          if (rates[x] > 0) {
+            total += rates[x];
+            count++;
+          }
+        }
+        if (count > 0) {
+          beatAvg = total / count;
+          heartRate = (float)beatAvg;
+        } else {
+          heartRate = bpm;
+        }
       }
     }
 

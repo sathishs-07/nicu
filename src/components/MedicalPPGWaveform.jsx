@@ -284,7 +284,7 @@ export default function MedicalPPGWaveform({
   let resolvedState = "good";
   if (!isLive) {
     resolvedState = "poor_contact";
-  } else if (irValue !== null && irValue < 50000) {
+  } else if (irValue !== null && irValue < 7000) {
     resolvedState = "poor_contact";
   } else if (heartRateStatus === "NO_CONTACT" || ppgStatus === "NOT_DETECTED") {
     resolvedState = "poor_contact";

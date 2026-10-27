@@ -115,7 +115,11 @@ bool ppgContact = false;
 // -------- PPG values --------
 long irValue = 0;
 long redValue = 0;
+const byte RATE_SIZE = 4;
+byte rates[RATE_SIZE];
+byte rateSpot = 0;
 long lastBeat = 0;
+int beatAvg = 0;
 
 float heartRate = NAN;
 float spo2Estimate = NAN;
@@ -244,12 +248,15 @@ void readPPG() {
   irValue = ppgSensor.getIR();
   redValue = ppgSensor.getRed();
 
-  // Optical contact threshold (< 50000 indicates poor contact or probe detached)
-  if (irValue < 50000) {
+  // Optical contact threshold (< 7000 indicates poor contact or probe detached / finger removed)
+  if (irValue < 7000) {
     ppgContact = false;
     heartRate = NAN;
     spo2Estimate = NAN;
     lastBeat = 0;
+    beatAvg = 0;
+    rateSpot = 0;
+    for (byte i = 0; i < RATE_SIZE; i++) rates[i] = 0;
     return;
   }
 
@@ -259,10 +266,27 @@ void readPPG() {
     unsigned long now = millis();
 
     if (lastBeat != 0) {
-      float bpm = 60000.0 / (now - lastBeat);
+      long delta = now - lastBeat;
+      float bpm = 60000.0 / delta;
 
       if (bpm >= 30 && bpm <= 240) {
-        heartRate = bpm;
+        rates[rateSpot++] = (byte)bpm;
+        rateSpot %= RATE_SIZE;
+
+        int total = 0;
+        byte count = 0;
+        for (byte x = 0; x < RATE_SIZE; x++) {
+          if (rates[x] > 0) {
+            total += rates[x];
+            count++;
+          }
+        }
+        if (count > 0) {
+          beatAvg = total / count;
+          heartRate = (float)beatAvg;
+        } else {
+          heartRate = bpm;
+        }
       }
     }
 
@@ -1670,18 +1694,34 @@ export default function Settings() {
 
                           <td className="p-3">
                             <div className="flex items-center gap-2">
-                              <select
-                                value={d.assignedPatientId || "UNASSIGNED"}
-                                onChange={(e) => handleReassignPatient(d.deviceId, e.target.value)}
-                                className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-blue-500"
-                              >
-                                <option value="UNASSIGNED">-- Unassigned (Spare) --</option>
-                                {patients.map((p) => (
-                                  <option key={p.patientId} value={p.patientId}>
-                                    {p.babyName} ({p.patientId}){p.assignedBedId ? ` · Bed ${p.assignedBedId}` : ""}
-                                  </option>
-                                ))}
-                              </select>
+                              {(() => {
+                                const availablePatients = (patients || []).filter((p) => {
+                                  // Exclude discharged patients
+                                  if (p.status === "Discharged" || p.dischargeDate) return false;
+                                  // Always keep the patient currently bound to this device
+                                  if (d.assignedPatientId === p.patientId) return true;
+                                  // Exclude patients already bound to another ESP32 device
+                                  const boundToOther = (devices || []).some(
+                                    (dev) => dev.deviceId !== d.deviceId && dev.assignedPatientId === p.patientId
+                                  );
+                                  return !boundToOther;
+                                });
+
+                                return (
+                                  <select
+                                    value={d.assignedPatientId || "UNASSIGNED"}
+                                    onChange={(e) => handleReassignPatient(d.deviceId, e.target.value)}
+                                    className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-blue-500"
+                                  >
+                                    <option value="UNASSIGNED">-- Unassigned (Spare) --</option>
+                                    {availablePatients.map((p) => (
+                                      <option key={p.patientId} value={p.patientId}>
+                                        {p.babyName} ({p.patientId}){p.assignedBedId ? ` · Bed ${p.assignedBedId}` : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                );
+                              })()}
                             </div>
                           </td>
 

@@ -135,6 +135,10 @@ app.get("/api/beds", async (req, res) => {
       } else {
         bedObj.connectionState = "CONNECTED";
       }
+      // If patient is present on this bed, ensure status is not left in Standby
+      if ((bedObj.babyName || bedObj.patientId) && bedObj.status === "Standby") {
+        bedObj.status = isFresh ? "Monitoring" : "Disconnected";
+      }
       // Populate deviceId from Device collection if missing on Bed
       if (!bedObj.deviceId) {
         const boundDev = devices.find((d) => d.assignedBedId === bedObj.bedId);
@@ -1355,13 +1359,15 @@ app.put("/api/devices/:id/assign", async (req, res) => {
 
     // Clear previous bindings if any and reset previous bed vitals
     if (device.assignedBedId) {
+      const prevBed = await Bed.findOne({ bedId: device.assignedBedId });
+      const prevHasPatient = prevBed && Boolean(prevBed.babyName || prevBed.patientId);
       await Bed.updateOne(
         { bedId: device.assignedBedId },
         {
           $set: {
             deviceId: null,
             connectionState: "DISCONNECTED",
-            status: "Standby",
+            status: prevHasPatient ? "Disconnected" : "Standby",
             hr: null,
             spo2: null,
             temperature: null,
@@ -1646,9 +1652,9 @@ async function processTelemetryIngestion(payload) {
   const targetPatientId = patient ? patient.patientId : (bed?.patientId || "UNASSIGNED");
 
   // Clinical contact detection:
-  // If sensor probe has no contact (irValue < 50000 or status NO_CONTACT or NOT_DETECTED or heartRate is null),
+  // If sensor probe has no contact (irValue < 7000 or status NO_CONTACT or NOT_DETECTED or heartRate is null),
   // heartRate and spo2 MUST be null (no contact) instead of retaining fake/dummy stale numbers.
-  const isProbeDisconnected = rawHrStatus === "NO_CONTACT" || rawPpgStatus === "NOT_DETECTED" || (rawIr !== null && Number(rawIr) < 50000) || payload.heartRate === null;
+  const isProbeDisconnected = rawHrStatus === "NO_CONTACT" || rawPpgStatus === "NOT_DETECTED" || (rawIr !== null && Number(rawIr) < 7000) || payload.heartRate === null;
   const effectiveHr = isProbeDisconnected ? null : (heartRate !== null ? heartRate : (bed?.hr ?? null));
   const effectiveSpo2 = isProbeDisconnected ? null : (spo2 !== null ? spo2 : (bed?.spo2 ?? null));
 
