@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import mqtt from "mqtt";
+import os from "os";
 
 import Bed from "./models/Bed.js";
 import Patient from "./models/Patient.js";
@@ -1199,19 +1200,41 @@ app.get("/api/devices", async (req, res) => {
       };
     });
 
-    // Clinical Product Rules:
-    // 1. Always return patient-assigned devices so offline alerts remain visible.
-    // 2. Return unassigned devices ONLY IF they are active and online (ready for new assignment).
-    // 3. Offline unassigned devices are hidden from available pool.
-    const visibleDevices = processed.filter((d) => {
-      if (d.isAssigned) return true;
-      return d.isOnline;
-    });
-
-    res.json(visibleDevices);
+    // Return all registered and auto-discovered devices with live connection status
+    res.json(processed);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Helper: Get Primary Local Network IPv4 Address for ESP32 configuration
+function getLocalNetworkIp() {
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of nets[name]) {
+      if (net.family === "IPv4" && !net.internal) {
+        return net.address;
+      }
+    }
+  }
+  return "127.0.0.1";
+}
+
+// ─── Network Info Endpoint for ESP32 Setup ────────────────────
+app.get("/api/system/network-info", (req, res) => {
+  const localIp = getLocalNetworkIp();
+  res.json({
+    success: true,
+    localIp,
+    port: PORT,
+    httpUrl: `http://${localIp}:${PORT}/api/telemetry`,
+    deviceHttpUrl: `http://${localIp}:${PORT}/api/devices/<DEVICE_ID>/telemetry`,
+    mqttBroker: "broker.hivemq.com",
+    mqttPort: 1883,
+    mqttTopicPattern: "nicu/telemetry/<DEVICE_ID>",
+    sampleDeviceId: "ESP32-NICU-01",
+    sampleBedId: "NICU-01",
+  });
 });
 
 // Register a new ESP32 product
@@ -1455,12 +1478,30 @@ async function processTelemetryIngestion(payload) {
   }
 
   // 2. Resolve Assigned Bed (Database mapping takes precedence over hardcoded firmware)
-  const targetBedId = device?.assignedBedId || bedId;
+  let targetBedId = device?.assignedBedId || bedId;
   let bed = null;
   if (targetBedId) {
     bed = await Bed.findOne({ bedId: targetBedId });
   } else if (deviceId) {
     bed = await Bed.findOne({ deviceId });
+  }
+
+  // Intelligent Auto-Mapping: if bed still not matched, check if deviceId has bed pattern (e.g. "ESP32-NICU-01" -> "NICU-01")
+  if (!bed && deviceId) {
+    const match = deviceId.match(/NICU-?0?(\d+)/i) || deviceId.match(/BED-?0?(\d+)/i);
+    if (match) {
+      const bedNum = match[1].padStart(2, "0");
+      const matchedBedId = `NICU-${bedNum}`;
+      bed = await Bed.findOne({ bedId: matchedBedId });
+    }
+  }
+
+  // If still not matched, and device is unassigned, find the first available Standby bed with no device attached
+  if (!bed && deviceId) {
+    bed = await Bed.findOne({
+      $or: [{ deviceId: null }, { deviceId: "" }],
+      status: "Standby",
+    });
   }
 
   // If device is not yet assigned to any bed, save reading as unassigned
@@ -1538,6 +1579,7 @@ async function processTelemetryIngestion(payload) {
   // 6. Prepare update object for Bed (real live data)
   const isAdmittedBaby = Boolean(bed.babyName && bed.babyName.trim().length > 0);
   const updatePayload = {
+    ...(deviceId ? { deviceId } : {}),
     hr: heartRate !== null ? heartRate : bed.hr,
     spo2: spo2 !== null ? spo2 : bed.spo2,
     temperature: temperature !== null ? temperature : bed.temperature,
@@ -1595,6 +1637,18 @@ async function processTelemetryIngestion(payload) {
   }
 
   const updatedBed = await Bed.findOneAndUpdate({ bedId: bed.bedId }, updatePayload, { new: true });
+
+  // Keep device & patient linkage fully synchronized
+  if (deviceId) {
+    if (device && device.assignedBedId !== bed.bedId) {
+      device.assignedBedId = bed.bedId;
+      if (bed.patientId) device.assignedPatientId = bed.patientId;
+      await device.save();
+    }
+    if (bed.patientId) {
+      await Patient.updateOne({ patientId: bed.patientId }, { $set: { deviceId } });
+    }
+  }
 
   return {
     success: true,

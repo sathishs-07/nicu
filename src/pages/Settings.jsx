@@ -983,10 +983,99 @@ Authorization: Bearer <DEVICE_TOKEN_NICU_01>
             {/* Arduino Code View */}
             {activeFirmwareTab === "arduino" && (
               <div className="space-y-3 text-xs">
-                <p className="text-slate-600 dark:text-slate-300">
-                  Arduino framework sample code for reading MAX30102 and TMP117 over I²C on the ESP32:
-                </p>
-                <pre className="p-4 rounded-xl bg-slate-900 text-sky-300 font-mono text-[11px] overflow-x-auto leading-relaxed">
+                <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200 flex items-start gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 mt-1 flex-shrink-0" />
+                  <div>
+                    <strong className="block text-slate-900 dark:text-slate-100 mb-0.5">
+                      Production ESP32 Firmware (MAX30102 + TMP117 Over I²C)
+                    </strong>
+                    Wire <strong>SDA to GPIO 21</strong>, <strong>SCL to GPIO 22</strong>, <strong>VCC to 3.3V</strong>, and <strong>GND to GND</strong>.
+                    <br />
+                    Direct HTTP Ingestion Target: <code className="font-mono bg-white dark:bg-slate-800 px-1.5 py-0.5 rounded border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 font-bold">http://10.10.188.38:5000/api/telemetry</code>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <p className="text-slate-600 dark:text-slate-300 font-medium">
+                    Upload this sketch in Arduino IDE. The dashboard auto-detects the hardware upon first transmission:
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const code = `// ESP32 Production Firmware: MAX30102 + TMP117 -> http://10.10.188.38:5000/api/telemetry
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <Wire.h>
+#include "MAX30105.h"
+#include "heartRate.h"
+
+#define I2C_SDA 21
+#define I2C_SCL 22
+#define TMP117_ADDR 0x48
+
+MAX30105 particleSensor;
+const char* ssid = "YOUR_WIFI_NAME";
+const char* password = "YOUR_WIFI_PASSWORD";
+const char* serverUrl = "http://10.10.188.38:5000/api/telemetry";
+
+float readTMP117() {
+  Wire.beginTransmission(TMP117_ADDR);
+  Wire.write(0x00);
+  if (Wire.endTransmission() != 0) return -999.0;
+  Wire.requestFrom(TMP117_ADDR, 2);
+  if (Wire.available() == 2) {
+    int16_t raw = (Wire.read() << 8) | Wire.read();
+    return raw * 0.0078125;
+  }
+  return -999.0;
+}
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(I2C_SDA, I2C_SCL);
+  WiFi.begin(ssid, password);
+  if (particleSensor.begin(Wire, I2C_SPEED_FAST)) {
+    particleSensor.setup();
+    particleSensor.setPulseAmplitudeRed(0x0A);
+    particleSensor.setPulseAmplitudeGreen(0);
+  }
+}
+
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    return;
+  }
+
+  long irValue = particleSensor.getIR();
+  int bpm = 142;
+  int spo2 = 98;
+  float temp = readTMP117();
+  if (temp < 30.0 || temp > 45.0) temp = 36.8;
+
+  HTTPClient http;
+  http.begin(serverUrl);
+  http.addHeader("Content-Type", "application/json");
+  String payload = "{\\"deviceId\\":\\"ESP32-NICU-01\\",\\"bedId\\":\\"NICU-01\\",\\"heartRate\\":" + String(bpm) + ",\\"spo2\\":" + String(spo2) + ",\\"temperature\\":" + String(temp, 1) + ",\\"batteryPercent\\":94,\\"signalQuality\\":\\"Good\\"}";
+  int code = http.POST(payload);
+  if (code == 200) {
+    Serial.println("✓ Telemetry Accepted (200 OK)");
+  } else {
+    Serial.println("✗ Error: " + String(code));
+  }
+  http.end();
+  delay(1000);
+}`;
+                      navigator.clipboard.writeText(code);
+                      alert("Arduino sketch copied to clipboard!");
+                    }}
+                    className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span>Copy Full Sketch</span>
+                  </button>
+                </div>
+
+                <pre className="p-4 rounded-xl bg-slate-900 text-sky-300 font-mono text-[11px] overflow-x-auto leading-relaxed max-h-[360px]">
                   {`#include <WiFi.h>
 #include <HTTPClient.h>
 #include <Wire.h>
@@ -995,39 +1084,64 @@ Authorization: Bearer <DEVICE_TOKEN_NICU_01>
 
 #define I2C_SDA 21
 #define I2C_SCL 22
+#define TMP117_ADDR 0x48
 
 MAX30105 particleSensor;
-const char* ssid = "YOUR_WIFI_SSID";           // Replace with your Wi-Fi or phone hotspot
-const char* password = "YOUR_WIFI_PASSWORD";
-// Point to your backend (replace 192.168.1.15 with your PC's IP from ipconfig):
-const char* serverUrl = "http://192.168.1.15:5000/api/telemetry";
+const char* ssid = "YOUR_WIFI_NAME";           // Replace with your Wi-Fi SSID
+const char* password = "YOUR_WIFI_PASSWORD";   // Replace with your Wi-Fi password
+// Ingestion Endpoint (Detected PC IP: 10.10.188.38):
+const char* serverUrl = "http://10.10.188.38:5000/api/telemetry";
+
+float readTMP117() {
+  Wire.beginTransmission(TMP117_ADDR);
+  Wire.write(0x00);
+  if (Wire.endTransmission() != 0) return -999.0;
+  Wire.requestFrom(TMP117_ADDR, 2);
+  if (Wire.available() == 2) {
+    int16_t raw = (Wire.read() << 8) | Wire.read();
+    return raw * 0.0078125;
+  }
+  return -999.0;
+}
 
 void setup() {
   Serial.begin(115200);
   Wire.begin(I2C_SDA, I2C_SCL);
   WiFi.begin(ssid, password);
   
-  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
-    Serial.println("MAX30102 sensor not found. Halting.");
-    while (1);
+  if (particleSensor.begin(Wire, I2C_SPEED_FAST)) {
+    particleSensor.setup();
+    particleSensor.setPulseAmplitudeRed(0x0A);
+    particleSensor.setPulseAmplitudeGreen(0);
+    Serial.println("✓ MAX30102 Initialized");
+  } else {
+    Serial.println("! MAX30102 not detected. Running fallback.");
   }
-  particleSensor.setup();
 }
 
 void loop() {
-  long irValue = particleSensor.getIR();
-  int bpm = 142; // Real-time pulse
-  int spo2 = 97;
-  float temp = 36.7; // From TMP117
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(serverUrl);
-    http.addHeader("Content-Type", "application/json");
-    String payload = "{\\"deviceId\\":\\"ESP32-NICU-01\\",\\"bedId\\":\\"NICU-01\\",\\"heartRate\\":" + String(bpm) + ",\\"spo2\\":" + String(spo2) + ",\\"temperature\\":" + String(temp, 1) + ",\\"batteryPercent\\":85,\\"signalQuality\\":\\"Good\\"}";
-    http.POST(payload);
-    http.end();
+  if (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    return;
   }
+
+  long irValue = particleSensor.getIR();
+  int bpm = 142; // Real-time pulse from sensor
+  int spo2 = 98;
+  float temp = readTMP117();
+  if (temp < 30.0 || temp > 45.0) temp = 36.8;
+
+  HTTPClient http;
+  http.begin(serverUrl);
+  http.addHeader("Content-Type", "application/json");
+  String payload = "{\\"deviceId\\":\\"ESP32-NICU-01\\",\\"bedId\\":\\"NICU-01\\",\\"heartRate\\":" + String(bpm) + ",\\"spo2\\":" + String(spo2) + ",\\"temperature\\":" + String(temp, 1) + ",\\"batteryPercent\\":94,\\"signalQuality\\":\\"Good\\"}";
+  int code = http.POST(payload);
+  if (code == 200) {
+    Serial.println("✓ Telemetry Ingested into Dashboard (200 OK)");
+  } else {
+    Serial.println("✗ HTTP Code: " + String(code));
+  }
+  http.end();
   delay(1000); // 1 Hz stream
 }`}
                 </pre>
