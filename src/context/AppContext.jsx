@@ -24,14 +24,25 @@ export const ROLES = {
   PATIENT: "Patient",
 };
 
-// Role permission helpers
+// Initial clean sterile beds for Level-III NICU bay initialization
+export const DEFAULT_INITIAL_BEDS = [
+  { bedId: "NICU-01", unitType: "Incubator Bay A", status: "Standby", connectionState: "DISCONNECTED", babyName: "", patientId: "", hr: null, spo2: null, temperature: null, activeAlerts: [], lastUpdate: "Station Clean · Ready for Admission" },
+  { bedId: "NICU-02", unitType: "Incubator Bay A", status: "Standby", connectionState: "DISCONNECTED", babyName: "", patientId: "", hr: null, spo2: null, temperature: null, activeAlerts: [], lastUpdate: "Station Clean · Ready for Admission" },
+  { bedId: "NICU-03", unitType: "Incubator Bay B", status: "Standby", connectionState: "DISCONNECTED", babyName: "", patientId: "", hr: null, spo2: null, temperature: null, activeAlerts: [], lastUpdate: "Station Clean · Ready for Admission" },
+  { bedId: "NICU-04", unitType: "Incubator Bay B", status: "Standby", connectionState: "DISCONNECTED", babyName: "", patientId: "", hr: null, spo2: null, temperature: null, activeAlerts: [], lastUpdate: "Station Clean · Ready for Admission" },
+  { bedId: "NICU-05", unitType: "Radiant Warmer 1", status: "Standby", connectionState: "DISCONNECTED", babyName: "", patientId: "", hr: null, spo2: null, temperature: null, activeAlerts: [], lastUpdate: "Station Clean · Ready for Admission" },
+  { bedId: "NICU-06", unitType: "Radiant Warmer 2", status: "Standby", connectionState: "DISCONNECTED", babyName: "", patientId: "", hr: null, spo2: null, temperature: null, activeAlerts: [], lastUpdate: "Station Clean · Ready for Admission" },
+];
+
+// Role permission helpers — Strict Role-Based Access Control
 export const can = {
   // Admit/discharge patients
   admitPatient: (role) => role === ROLES.ADMIN || role === ROLES.NURSE || role === ROLES.DOCTOR,
   dischargePatient: (role) => role === ROLES.ADMIN || role === ROLES.DOCTOR,
   // Device management
   manageDevices: (role) => role === ROLES.ADMIN,
-  assignDevice: (role) => role === ROLES.ADMIN || role === ROLES.NURSE,
+  assignDevice: (role) => role === ROLES.ADMIN || role === ROLES.DOCTOR || role === ROLES.NURSE,
+  deleteDevice: (role) => role === ROLES.ADMIN,
   // Alert actions
   acknowledgeAlert: (role) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.NURSE].includes(role),
   resolveAlert: (role) => role === ROLES.ADMIN || role === ROLES.DOCTOR,
@@ -39,8 +50,15 @@ export const can = {
   manageStaff: (role) => role === ROLES.ADMIN,
   // Threshold changes
   changeThresholds: (role) => role === ROLES.ADMIN || role === ROLES.DOCTOR,
-  // Settings
-  accessSettings: (role) => role === ROLES.ADMIN,
+  // Settings & Subtabs Access
+  accessSettings: (role) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.NURSE].includes(role),
+  accessUsersAndPermissions: (role) => role === ROLES.ADMIN, // STRICTLY ADMINISTRATOR ONLY
+  accessSecurityAudit: (role) => role === ROLES.ADMIN,       // STRICTLY ADMINISTRATOR ONLY
+  accessRetentionReports: (role) => role === ROLES.ADMIN,    // STRICTLY ADMINISTRATOR ONLY
+  accessAlertRules: (role) => role === ROLES.ADMIN || role === ROLES.DOCTOR,
+  accessDevices: (role) => role === ROLES.ADMIN || role === ROLES.DOCTOR,
+  accessBeds: (role) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.NURSE].includes(role),
+  deleteBeds: (role) => role === ROLES.ADMIN,
   // Legal Medical Records
   generateLegalReport: (role) => [ROLES.ADMIN, ROLES.DOCTOR, ROLES.NURSE].includes(role),
 };
@@ -231,11 +249,29 @@ export function AppProvider({ children }) {
   // Clinical thresholds
   const [thresholds, setThresholds] = useState({ ...DEFAULT_THRESHOLDS });
 
-  // Beds — starts empty, populated from MongoDB
-  const [beds, setBeds] = useState([]);
+  // Beds — initialized with clean Level-III bays, persisted and synchronized
+  const [beds, setBeds] = useState(() => {
+    try {
+      const cached = localStorage.getItem("nicu_cached_beds");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return DEFAULT_INITIAL_BEDS;
+  });
 
   // Patients registry (active and discharged neonates)
-  const [patients, setPatients] = useState([]);
+  const [patients, setPatients] = useState(() => {
+    try {
+      const cached = localStorage.getItem("nicu_cached_patients");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
 
   // Staff state — initialized with sample accredited clinical team, updated from backend
   const [staffList, setStaffList] = useState(DEFAULT_CLINICAL_STAFF);

@@ -9,7 +9,7 @@ const DeviceSchema = new mongoose.Schema(
     firmwareVersion: { type: String, default: "v2.1.4-esp32s3" },
     assignedBedId: { type: String, default: null }, // e.g. "NICU-01" or null if unassigned
     assignedPatientId: { type: String, default: null },
-    status: { type: String, default: "ONLINE", enum: ["ONLINE", "OFFLINE", "UNASSIGNED", "WARNING", "AVAILABLE"] },
+    status: { type: String, default: "ONLINE", enum: ["ONLINE", "OFFLINE", "UNASSIGNED", "WARNING"] },
     batteryPercent: { type: Number, default: 85 },
     rssi: { type: Number, default: -58 },
     signalQuality: { type: String, default: "Good" },

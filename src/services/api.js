@@ -13,7 +13,12 @@ export function getApiBaseUrl() {
     return import.meta.env.VITE_API_BASE_URL.replace(/\/$/, "");
   }
   if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
-    return "/api";
+    // When running on Vercel cloud deployment:
+    // If user configured a cloud backend (e.g. Render/Railway), use it;
+    // otherwise fallback gracefully to local storage persistence
+    const cloudUrl = localStorage.getItem("nicu_cloud_backend_url");
+    if (cloudUrl) return cloudUrl.replace(/\/$/, "");
+    return "";
   }
   return "http://localhost:5000/api";
 }
@@ -22,16 +27,27 @@ export function setApiBaseUrl(url) {
   if (typeof window !== "undefined") {
     if (url) {
       localStorage.setItem("nicu_api_base_url", url.trim());
+      localStorage.setItem("nicu_cloud_backend_url", url.trim());
     } else {
       localStorage.removeItem("nicu_api_base_url");
+      localStorage.removeItem("nicu_cloud_backend_url");
     }
   }
+}
+
+export function isCloudDeployment() {
+  if (typeof window === "undefined") return false;
+  return window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1";
 }
 
 // Helper for safe fetch with timeout — returns null on failure
 async function safeFetch(endpoint, options = {}) {
   try {
     const baseUrl = getApiBaseUrl();
+    if (!baseUrl) {
+      // Cloud deployment with no backend endpoint configured: use local storage cache gracefully
+      return null;
+    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
 

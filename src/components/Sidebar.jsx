@@ -18,37 +18,49 @@ import {
   Activity,
   HeartPulse,
   Radio,
-  Sliders,
+  Bed,
 } from "lucide-react";
-import { useApp } from "../context/AppContext";
-
-const NAV_SECTIONS = [
-  {
-    title: "Clinical Monitoring",
-    items: [
-      { to: "/", icon: LayoutDashboard, label: "Ward Overview", end: true },
-      { to: "/patients", icon: Baby, label: "Patient Registry" },
-      { to: "/doctors", icon: Users, label: "Care Team Roster" },
-    ],
-  },
-  {
-    title: "Diagnostics & Alarms",
-    items: [
-      { to: "/alerts", icon: Bell, label: "Critical Alarms", hasBadge: true },
-      { to: "/analytics", icon: BarChart3, label: "Sensor Analytics" },
-    ],
-  },
-  {
-    title: "Configuration",
-    items: [
-      { to: "/settings", icon: Settings, label: "Unit Settings" },
-    ],
-  },
-];
+import { useApp, ROLES } from "../context/AppContext";
 
 export default function Sidebar({ onWidthChange }) {
   const [collapsed, setCollapsed] = useState(false);
-  const { activeAlertsCount, devicesOnlineCount, totalBeds } = useApp();
+  const { activeAlertsCount, devicesOnlineCount, totalBeds, currentUser } = useApp();
+
+  const userRole = currentUser?.role || ROLES.NURSE;
+  const isNurse = userRole === ROLES.NURSE;
+  const isDoctor = userRole === ROLES.DOCTOR;
+
+  const navSections = [
+    {
+      title: "Clinical Monitoring",
+      items: [
+        { to: "/", icon: LayoutDashboard, label: "Ward Overview", end: true },
+        { to: "/patients", icon: Baby, label: "Patient Registry" },
+        { to: "/doctors", icon: Users, label: "Care Team Roster" },
+      ],
+    },
+    {
+      title: "Diagnostics & Alarms",
+      items: [
+        { to: "/alerts", icon: Bell, label: "Critical Alarms", hasBadge: true },
+        { to: "/analytics", icon: BarChart3, label: "Sensor Analytics" },
+      ],
+    },
+    {
+      title: isNurse ? "Bedside Management" : "Configuration",
+      items: [
+        {
+          to: isNurse ? "/settings?tab=beds" : "/settings",
+          icon: isNurse ? Bed : Settings,
+          label: isNurse
+            ? "Bed Station Roster"
+            : isDoctor
+            ? "Clinical Thresholds & Bays"
+            : "Central Unit Settings",
+        },
+      ],
+    },
+  ];
 
   const toggleCollapse = () => {
     const next = !collapsed;
@@ -89,7 +101,7 @@ export default function Sidebar({ onWidthChange }) {
 
       {/* Nav Items List by Categorized Clinical Sections */}
       <nav className="flex-1 px-2.5 py-2 space-y-3 overflow-y-auto">
-        {NAV_SECTIONS.map((section) => (
+        {navSections.map((section) => (
           <div key={section.title} className="space-y-1">
             {!collapsed && (
               <div className="px-3 pt-2 pb-1 text-[10px] font-extrabold tracking-wider uppercase text-slate-400 dark:text-slate-500 font-mono">

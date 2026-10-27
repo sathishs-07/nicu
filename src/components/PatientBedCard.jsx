@@ -92,45 +92,11 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
             </p>
 
             {/* Hardware Status Tag */}
-            <div className="mt-3 flex items-center justify-between text-xs font-mono px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300">
-              <div className="flex items-center gap-2">
-                <Cpu size={14} className="text-blue-600 dark:text-blue-400" />
-                <span>Node: {effectiveDeviceId || bed.deviceId || "Unassigned"}</span>
-              </div>
-              <span className="flex items-center gap-1.5 text-[11px]">
-                <span className={`w-2 h-2 rounded-full ${isLiveOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
-                <span className={isLiveOnline ? "text-emerald-600 dark:text-emerald-400 font-bold" : "text-slate-400"}>
-                  {isLiveOnline ? "STREAMING" : "STANDBY"}
-                </span>
-              </span>
+            <div className="mt-4 flex items-center gap-2 text-xs font-mono px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300">
+              <Cpu size={14} className="text-blue-600 dark:text-blue-400" />
+              <span>Node: {bed.deviceId || "Unassigned"}</span>
+              <span className={`w-2 h-2 rounded-full ${isLiveOnline ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
             </div>
-
-            {/* Live Sensor Ingestion Preview on Standby Bed */}
-            {isLiveOnline && (
-              <div className="mt-2.5 p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/60 text-emerald-900 dark:text-emerald-200 animate-in fade-in space-y-1">
-                <div className="flex items-center justify-between text-[11px] font-bold">
-                  <span className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                    Live Telemetry Ingested
-                  </span>
-                  <span className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400">{bed.lastUpdate || "Just now"}</span>
-                </div>
-                <div className="grid grid-cols-3 gap-1 pt-1 text-center font-mono">
-                  <div className="bg-white/80 dark:bg-slate-900/60 p-1 rounded-lg border border-emerald-100 dark:border-emerald-900/60">
-                    <div className="text-[9px] font-sans text-slate-500 uppercase">HR</div>
-                    <div className="text-xs font-bold text-rose-600 dark:text-rose-400">{bed.hr || "--"} <span className="text-[9px]">bpm</span></div>
-                  </div>
-                  <div className="bg-white/80 dark:bg-slate-900/60 p-1 rounded-lg border border-emerald-100 dark:border-emerald-900/60">
-                    <div className="text-[9px] font-sans text-slate-500 uppercase">SpO₂</div>
-                    <div className="text-xs font-bold text-cyan-600 dark:text-cyan-400">{bed.spo2 || "--"} <span className="text-[9px]">%</span></div>
-                  </div>
-                  <div className="bg-white/80 dark:bg-slate-900/60 p-1 rounded-lg border border-emerald-100 dark:border-emerald-900/60">
-                    <div className="text-[9px] font-sans text-slate-500 uppercase">Temp</div>
-                    <div className="text-xs font-bold text-amber-600 dark:text-amber-400">{bed.temperature || "--"} <span className="text-[9px]">°C</span></div>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
@@ -206,25 +172,23 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
 
   return (
     <div
-      className={`flex flex-col justify-between p-5 rounded-3xl border transition-all duration-300 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-md hover:shadow-xl relative overflow-hidden group ${
-        hasUrgentAlert
+      className={`flex flex-col justify-between p-5 rounded-3xl border transition-all duration-300 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-md hover:shadow-xl relative overflow-hidden group ${hasUrgentAlert
           ? "border-rose-400 dark:border-rose-700 ring-2 ring-rose-500/20 shadow-rose-500/10"
           : hasAlerts
-          ? "border-amber-400 dark:border-amber-700 ring-2 ring-amber-500/20"
-          : "border-slate-200/90 dark:border-slate-800 hover:border-blue-400 dark:hover:border-blue-600"
-      }`}
+            ? "border-amber-400 dark:border-amber-700 ring-2 ring-amber-500/20"
+            : "border-slate-200/90 dark:border-slate-800 hover:border-blue-400 dark:hover:border-blue-600"
+        }`}
     >
       {/* Top Accent Stripe */}
       <div
-        className={`absolute top-0 left-0 right-0 h-1 ${
-          hasUrgentAlert
+        className={`absolute top-0 left-0 right-0 h-1 ${hasUrgentAlert
             ? "bg-rose-500"
             : hasAlerts
-            ? "bg-amber-500"
-            : isLiveOnline
-            ? "bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400"
-            : "bg-slate-400"
-        }`}
+              ? "bg-amber-500"
+              : isLiveOnline
+                ? "bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-400"
+                : "bg-slate-400"
+          }`}
       />
 
       {/* ── Top Header: Station ID, Baby Identity, Live Status ── */}
@@ -289,13 +253,12 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
         <div className="grid grid-cols-3 gap-2 my-2.5">
           {/* Heart Rate Tile */}
           <div
-            className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${
-              !isLiveOnline
+            className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${!isLiveOnline
                 ? "bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-400"
                 : bed.hr < 100 || bed.hr > 180
-                ? "bg-rose-50/80 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800/80 shadow-xs ring-1 ring-rose-500/20"
-                : "bg-slate-50/70 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/60"
-            }`}
+                  ? "bg-rose-50/80 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800/80 shadow-xs ring-1 ring-rose-500/20"
+                  : "bg-slate-50/70 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/60"
+              }`}
           >
             <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
               <span className="flex items-center gap-1">
@@ -306,13 +269,12 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
             </div>
             <div className="my-1">
               <div
-                className={`text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none ${
-                  !isLiveOnline
+                className={`text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none ${!isLiveOnline
                     ? "text-slate-400"
                     : bed.hr < 100 || bed.hr > 180
-                    ? "text-rose-600 dark:text-rose-400"
-                    : "text-slate-900 dark:text-slate-100"
-                }`}
+                      ? "text-rose-600 dark:text-rose-400"
+                      : "text-slate-900 dark:text-slate-100"
+                  }`}
               >
                 {!isLiveOnline ? "--" : bed.hr}
               </div>
@@ -324,13 +286,12 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
 
           {/* SpO2 Tile */}
           <div
-            className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${
-              !isLiveOnline
+            className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${!isLiveOnline
                 ? "bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-400"
                 : bed.spo2 < 90
-                ? "bg-rose-50/80 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800/80 shadow-xs ring-1 ring-rose-500/20"
-                : "bg-slate-50/70 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/60"
-            }`}
+                  ? "bg-rose-50/80 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800/80 shadow-xs ring-1 ring-rose-500/20"
+                  : "bg-slate-50/70 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/60"
+              }`}
           >
             <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
               <span className="flex items-center gap-1">
@@ -341,13 +302,12 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
             </div>
             <div className="my-1">
               <div
-                className={`text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none ${
-                  !isLiveOnline
+                className={`text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none ${!isLiveOnline
                     ? "text-slate-400"
                     : bed.spo2 < 90
-                    ? "text-rose-600 dark:text-rose-400"
-                    : "text-slate-900 dark:text-slate-100"
-                }`}
+                      ? "text-rose-600 dark:text-rose-400"
+                      : "text-slate-900 dark:text-slate-100"
+                  }`}
               >
                 {!isLiveOnline ? "--" : `${bed.spo2}%`}
               </div>
@@ -359,13 +319,12 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
 
           {/* Temperature Tile */}
           <div
-            className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${
-              !isLiveOnline
+            className={`p-3 rounded-2xl border flex flex-col justify-between transition-all ${!isLiveOnline
                 ? "bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 text-slate-400"
                 : bed.temperature < 36.2 || bed.temperature > 37.5
-                ? "bg-amber-50/80 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800/80 shadow-xs ring-1 ring-amber-500/20"
-                : "bg-slate-50/70 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/60"
-            }`}
+                  ? "bg-amber-50/80 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800/80 shadow-xs ring-1 ring-amber-500/20"
+                  : "bg-slate-50/70 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-700/60"
+              }`}
           >
             <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500 dark:text-slate-400">
               <span className="flex items-center gap-1">
@@ -376,13 +335,12 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
             </div>
             <div className="my-1">
               <div
-                className={`text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none ${
-                  !isLiveOnline
+                className={`text-2xl sm:text-3xl font-black font-mono tracking-tight leading-none ${!isLiveOnline
                     ? "text-slate-400"
                     : bed.temperature < 36.2 || bed.temperature > 37.5
-                    ? "text-amber-600 dark:text-amber-400"
-                    : "text-slate-900 dark:text-slate-100"
-                }`}
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-slate-900 dark:text-slate-100"
+                  }`}
               >
                 {!isLiveOnline ? "--" : `${bed.temperature}°`}
               </div>
@@ -475,11 +433,10 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
         </button>
         <button
           onClick={() => navigate(`/alerts?bed=${bed.bedId}`)}
-          className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
-            hasAlerts
+          className={`py-2 px-3 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${hasAlerts
               ? "border-rose-300 bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-300"
               : "border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
-          }`}
+            }`}
         >
           Alerts {hasAlerts && `(${bed.activeAlerts.length})`}
         </button>
