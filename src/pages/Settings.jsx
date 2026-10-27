@@ -9,7 +9,7 @@
 // 6. Security & Audit Trail Logs
 // =============================================================
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Settings as SettingsIcon,
   Bed,
