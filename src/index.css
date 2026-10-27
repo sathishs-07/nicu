@@ -2,9 +2,13 @@
 
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));
+
 /* ─── Modern Clinical White & Blue Design System (Default) ─── */
 :root,
 html {
+  color-scheme: light;
+  /* Crisp Clinical White & Hospital Blue Canvas */
   /* Crisp Clinical White & Hospital Blue Canvas */
   --bg-app: #f8fafc;
   --bg-subtle: #f1f5f9;
@@ -72,7 +76,10 @@ html {
 }
 
 /* ─── Alternative Dark Shift Mode ─── */
-[data-theme="dark"] {
+[data-theme="dark"],
+.dark,
+html.dark {
+  color-scheme: dark;
   --bg-app: #090d16;
   --bg-subtle: #0f172a;
   --panel-bg: #0f172a;

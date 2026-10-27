@@ -487,11 +487,11 @@ export function AppProvider({ children }) {
         prev.map((alert) =>
           alert.alertId === alertId
             ? {
-                ...alert,
-                status: "Acknowledged",
-                acknowledgedAt: nowStr,
-                notes: (alert.notes || "") + `\n[${nowStr}] Acknowledged by ${actor}.`,
-              }
+              ...alert,
+              status: "Acknowledged",
+              acknowledgedAt: nowStr,
+              notes: (alert.notes || "") + `\n[${nowStr}] Acknowledged by ${actor}.`,
+            }
             : alert
         )
       );
@@ -640,11 +640,11 @@ export function AppProvider({ children }) {
         prev.map((b) =>
           b.bedId === bedId
             ? {
-                ...b,
-                assignedDoctorId: doctorId,
-                assignedDoctorName: doctor ? doctor.shortName : b.assignedDoctorName,
-                assignedNurseIds: nurseIds,
-              }
+              ...b,
+              assignedDoctorId: doctorId,
+              assignedDoctorName: doctor ? doctor.shortName : b.assignedDoctorName,
+              assignedNurseIds: nurseIds,
+            }
             : b
         )
       );
@@ -793,37 +793,235 @@ export function AppProvider({ children }) {
     }
   }, []);
 
+
+  const sanitizeBed = useCallback(
+    async (bedId, details = {}) => {
+      const targetBed = beds.find((b) => b.bedId === bedId);
+      const isOccupied = Boolean(
+        targetBed?.babyName &&
+        targetBed.babyName.trim().length > 0 &&
+        targetBed.status !== "Standby"
+      );
+
+      if (isOccupied) {
+        // OCCUPIED STATION: Routine Bedside Surface Sanitization & Filter Check
+        // CRITICAL: Patients are NEVER discharged here! Admission remains active.
+        const timeStr = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+        setBeds((prev) =>
+          prev.map((b) =>
+            b.bedId === bedId
+              ? {
+                  ...b,
+                  lastUpdate: `Surface Disinfected & Filter Verified (${timeStr})`,
+                }
+              : b
+          )
+        );
+      } else {
+        // STANDBY STATION: Terminal UV-C Sterilization & Admission Certification
+        setBeds((prev) =>
+          prev.map((b) =>
+            b.bedId === bedId
+              ? {
+                  ...b,
+                  patientId: "",
+                  babyName: "",
+                  motherName: "",
+                  gender: "",
+                  gestationalAge: "",
+                  birthWeight: "",
+                  bloodGroup: "",
+                  diagnosis: "",
+                  deviceId: null,
+                  deviceMac: "",
+                  status: "Standby",
+                  connectionState: "DISCONNECTED",
+                  hr: null,
+                  spo2: null,
+                  temperature: null,
+                  activeAlerts: [],
+                  lastHeartbeatMs: 0,
+                  lastUpdate: "Sanitized & Disinfected — Ready for Admission",
+                }
+              : b
+          )
+        );
+      }
+
+      try {
+        const res = await api.sanitizeBed(bedId, {
+          actor: currentUser?.name || "Clinical Staff",
+          role: currentUser?.role || "Nurse",
+          ...details,
+        });
+
+        // Re-synchronize from server
+        const [freshBeds, freshPts] = await Promise.all([
+          api.getBeds(),
+          api.getPatients(),
+        ]);
+        if (freshBeds && Array.isArray(freshBeds)) setBeds(freshBeds);
+        if (freshPts && Array.isArray(freshPts)) setPatients(freshPts);
+        return res;
+      } catch (e) {
+        console.warn("Sanitize sync error:", e);
+      }
+
+      setAuditLogs((prev) => [
+        {
+          id: `LOG-${Date.now().toString().slice(-4)}`,
+          actor: currentUser?.name || "Staff",
+          role: currentUser?.role || "Nurse",
+          action: isOccupied
+            ? `Completed routine surface sanitization & HEPA filter inspection for Bed ${bedId} (${targetBed?.babyName}). Inpatient vital monitoring active uninterrupted.`
+            : `Completed terminal decontamination protocol (UV-C & surface sterilization) for Bed ${bedId}. Station released to Standby.`,
+          timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+          ip: "System",
+        },
+        ...prev,
+      ]);
+    },
+    [currentUser, beds]
+  );
+
   const admitPatient = useCallback(
     async (patientData) => {
       if (!can.admitPatient(currentUser?.role)) {
         throw new Error("Insufficient permissions to admit patients.");
       }
-      const res = await api.admitPatient({ ...patientData, actor: currentUser?.name });
-      await fetchPatients();
-      const updatedBeds = await api.getBeds();
-      if (updatedBeds && Array.isArray(updatedBeds)) setBeds(updatedBeds);
-      const updatedDevices = await api.getDevices();
-      if (updatedDevices && Array.isArray(updatedDevices)) setDevices(updatedDevices);
-      return res;
+
+      // Optimistic instant state update
+      const newPt = {
+        ...patientData,
+        patientId: patientData.patientId || `PT-${Date.now().toString().slice(-4)}`,
+        status: "Admitted",
+        admissionDate: new Date().toISOString().substring(0, 10),
+      };
+
+      setPatients((prev) => [newPt, ...prev.filter((p) => p.patientId !== newPt.patientId)]);
+
+      if (patientData.assignedBedId) {
+        setBeds((prev) =>
+          prev.map((b) =>
+            b.bedId === patientData.assignedBedId
+              ? {
+                  ...b,
+                  patientId: newPt.patientId,
+                  babyName: newPt.babyName,
+                  motherName: newPt.motherName,
+                  gender: newPt.gender || "Female",
+                  gestationalAge: newPt.gestationalAge || "33w",
+                  birthWeight: newPt.birthWeight || "1,800 g",
+                  diagnosis: newPt.diagnosis || "Observation",
+                  assignedDoctorId: newPt.assignedDoctorId || "DOC-01",
+                  assignedDoctorName: newPt.assignedDoctorName || "Dr. Meera Vasudevan",
+                  deviceId: newPt.deviceId || b.deviceId,
+                  status: "Monitoring",
+                  connectionState: "CONNECTED",
+                  lastUpdate: "Admitted — Monitoring Active",
+                }
+              : b
+          )
+        );
+      }
+
+      try {
+        const res = await api.admitPatient({ ...patientData, actor: currentUser?.name });
+        await fetchPatients();
+        const updatedBeds = await api.getBeds();
+        if (updatedBeds && Array.isArray(updatedBeds)) setBeds(updatedBeds);
+        const updatedDevices = await api.getDevices();
+        if (updatedDevices && Array.isArray(updatedDevices)) setDevices(updatedDevices);
+        return res;
+      } catch (err) {
+        console.warn("Admission server sync warning:", err.message);
+      }
     },
     [currentUser, fetchPatients]
   );
 
   const dischargePatient = useCallback(
-    async (patientId, dischargeData) => {
+    async (patientId, dischargeData = {}) => {
       if (!can.dischargePatient(currentUser?.role)) {
         throw new Error("Only Doctors and Administrators can discharge patients.");
       }
-      const res = await api.dischargePatient(patientId, {
-        ...dischargeData,
-        actor: currentUser?.name,
-      });
-      await fetchPatients();
-      const updatedBeds = await api.getBeds();
-      if (updatedBeds && Array.isArray(updatedBeds)) setBeds(updatedBeds);
-      const updatedDevices = await api.getDevices();
-      if (updatedDevices && Array.isArray(updatedDevices)) setDevices(updatedDevices);
-      return res;
+
+      // Optimistic update: instantly free up bed and update patient status
+      let freedBedId = null;
+      let targetBabyName = "";
+      setPatients((prev) =>
+        prev.map((p) => {
+          if (p.patientId === patientId || p._id === patientId) {
+            freedBedId = p.assignedBedId;
+            targetBabyName = p.babyName;
+            return {
+              ...p,
+              status: "Discharged",
+              dischargeDate: dischargeData.dischargeDate || new Date().toISOString().substring(0, 10),
+              dischargeCondition: dischargeData.dischargeCondition || "Full Recovery",
+              dischargeSummary: dischargeData.dischargeSummary || "Recovered & Discharged",
+              assignedBedId: null,
+              deviceId: null,
+            };
+          }
+          return p;
+        })
+      );
+
+      // Instantly free up the bed in UI so it can immediately be assigned to another infant
+      setBeds((prev) =>
+        prev.map((b) => {
+          if (b.patientId === patientId || (freedBedId && b.bedId === freedBedId)) {
+            return {
+              ...b,
+              patientId: "",
+              babyName: "",
+              motherName: "",
+              gender: "",
+              gestationalAge: "",
+              birthWeight: "",
+              diagnosis: "",
+              status: "Standby",
+              connectionState: "DISCONNECTED",
+              deviceId: null,
+              hr: null,
+              spo2: null,
+              temperature: null,
+              activeAlerts: [],
+              lastHeartbeatMs: 0,
+              lastUpdate: "Discharged — Bed Available for Admission",
+            };
+          }
+          return b;
+        })
+      );
+
+      setAuditLogs((prev) => [
+        {
+          id: `LOG-${Date.now().toString().slice(-4)}`,
+          actor: currentUser?.name || "Doctor",
+          role: currentUser?.role || "Doctor",
+          action: `Discharged infant ${targetBabyName || patientId} from Bed ${freedBedId || "NICU"}. Bed freed for reuse.`,
+          timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+          ip: "System",
+        },
+        ...prev,
+      ]);
+
+      try {
+        const res = await api.dischargePatient(patientId, {
+          ...dischargeData,
+          actor: currentUser?.name,
+        });
+        await fetchPatients();
+        const updatedBeds = await api.getBeds();
+        if (updatedBeds && Array.isArray(updatedBeds)) setBeds(updatedBeds);
+        const updatedDevices = await api.getDevices();
+        if (updatedDevices && Array.isArray(updatedDevices)) setDevices(updatedDevices);
+        return res;
+      } catch (err) {
+        console.warn("Discharge server sync warning:", err.message);
+      }
     },
     [currentUser, fetchPatients]
   );
@@ -877,6 +1075,7 @@ export function AppProvider({ children }) {
         setBeds,
         addBed,
         deleteBed,
+        sanitizeBed,
         // Staff
         staffList,
         setStaffList,
@@ -909,6 +1108,7 @@ export function AppProvider({ children }) {
         totalBeds,
         activeMonitoringCount,
         activeAlertsCount,
+        activeAlertsList,
         devicesOnlineCount,
         // Real Sensor Analytics
         analyticsData,

@@ -226,11 +226,10 @@ export default function Dashboard() {
         {/* Active Alerts */}
         <div className="clinical-card p-4 sm:p-5 flex items-center gap-3.5">
           <div
-            className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 border ${
-              activeAlertsCount > 0
+            className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 border ${activeAlertsCount > 0
                 ? "bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400"
                 : "bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400"
-            }`}
+              }`}
           >
             <AlertTriangle size={22} />
           </div>
@@ -239,9 +238,8 @@ export default function Dashboard() {
               Active Alerts
             </div>
             <div
-              className={`text-2xl font-extrabold font-mono tracking-tight leading-tight ${
-                activeAlertsCount > 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"
-              }`}
+              className={`text-2xl font-extrabold font-mono tracking-tight leading-tight ${activeAlertsCount > 0 ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-slate-100"
+                }`}
             >
               {activeAlertsCount}
             </div>

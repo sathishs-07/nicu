@@ -42,7 +42,7 @@ function AppShell() {
       <main
         className="transition-all duration-300 ease-in-out p-4 sm:p-6 lg:p-8"
         style={{
-          marginLeft: sidebarExpanded ? "230px" : "68px",
+          marginLeft: sidebarExpanded ? "240px" : "68px",
           marginTop: "60px",
           minHeight: "calc(100vh - 60px)",
         }}

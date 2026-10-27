@@ -5,8 +5,8 @@ const AlertSchema = new mongoose.Schema(
     alertId: { type: String, required: true, unique: true }, // e.g. "ALT-1082"
     detectedAt: { type: String, required: true },
     bedId: { type: String, required: true },
-    patientId: { type: String, required: true },
-    babyName: { type: String, required: true },
+    patientId: { type: String, default: "" },
+    babyName: { type: String, default: "Station Alert" },
     alertType: { type: String, required: true }, // e.g. "HR & SpO2 Desaturation"
     parameter: { type: String, required: true },
     readingValue: { type: String, required: true },

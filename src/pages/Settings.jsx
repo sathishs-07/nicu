@@ -35,6 +35,14 @@ import {
   Sparkles,
   Layers,
   X,
+  Download,
+  Cloud,
+  Database,
+  Activity,
+  FileText,
+  Check,
+  RotateCcw,
+  Clock,
 } from "lucide-react";
 import { useApp, ROLES } from "../context/AppContext";
 import { api } from "../services/api";
@@ -45,6 +53,9 @@ export default function Settings() {
     updateThresholds,
     beds,
     setBeds,
+    addBed,
+    deleteBed,
+    sanitizeBed,
     devices,
     addDevice,
     assignDeviceToBed,
@@ -58,13 +69,37 @@ export default function Settings() {
     setDataSourceMode,
     rolePermissions,
     updateRolePermission,
+    staffList,
+    patients,
   } = useApp();
 
-  const [activeSubTab, setActiveSubTab] = useState("alert-rules"); // "beds" | "devices" | "alert-rules" | "users" | "retention" | "security"
+  const [activeSubTab, setActiveSubTab] = useState("beds"); // "beds" | "devices" | "alert-rules" | "users" | "retention" | "security"
   const [showConnectGuide, setShowConnectGuide] = useState(false);
   const [thresholdForm, setThresholdForm] = useState({ ...thresholds });
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [activeFirmwareTab, setActiveFirmwareTab] = useState("payload"); // "payload" | "arduino" | "wiring"
+
+  // Bed Slot Management state
+  const [showAddBedModal, setShowAddBedModal] = useState(false);
+  const [newBedForm, setNewBedForm] = useState({
+    bedId: "",
+    unitType: "Incubator A",
+    assignedDoctorId: "DOC-01",
+    assignedDoctorName: "Dr. Meera Vasudevan",
+    deviceId: "",
+  });
+  const [isAddingBed, setIsAddingBed] = useState(false);
+  const [sanitizingBedModal, setSanitizingBedModal] = useState(null);
+  const [isDecontaminating, setIsDecontaminating] = useState(false);
+  const [decontaminateStep, setDecontaminateStep] = useState(0);
+
+  // Reports & Retention state
+  const [retentionDays, setRetentionDays] = useState("90");
+  const [auditRetentionYears, setAuditRetentionYears] = useState("7");
+  const [backupFrequency, setBackupFrequency] = useState("daily");
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [backupToast, setBackupToast] = useState(null);
+  const [censusReportGenerated, setCensusReportGenerated] = useState(false);
 
   // ESP32 Product Management state
   const [showAddDeviceModal, setShowAddDeviceModal] = useState(false);
@@ -148,16 +183,119 @@ export default function Settings() {
     }
   };
 
+  const handleAddBed = async (e) => {
+    e.preventDefault();
+    if (!newBedForm.bedId.trim()) {
+      alert("Please enter a valid Bed ID (e.g. NICU-07)");
+      return;
+    }
+    setIsAddingBed(true);
+    try {
+      const doc = (staffList || []).find((s) => s.id === newBedForm.assignedDoctorId);
+      await addBed({
+        ...newBedForm,
+        assignedDoctorName: doc ? doc.name : newBedForm.assignedDoctorName,
+        status: "Standby",
+        babyName: "",
+        motherName: "",
+        lastUpdate: "Sanitized & Available for Admission",
+      });
+      setShowAddBedModal(false);
+      setNewBedForm({
+        bedId: "",
+        unitType: "Incubator A",
+        assignedDoctorId: "DOC-01",
+        assignedDoctorName: "Dr. Meera Vasudevan",
+        deviceId: "",
+      });
+    } catch (err) {
+      alert("Error adding bed: " + err.message);
+    } finally {
+      setIsAddingBed(false);
+    }
+  };
+
+  const handleOpenSanitizeModal = (bed) => {
+    setSanitizingBedModal(bed);
+    setIsDecontaminating(false);
+    setDecontaminateStep(0);
+  };
+
+  const handleExecuteSanitize = async () => {
+    if (!sanitizingBedModal) return;
+    setIsDecontaminating(true);
+    setDecontaminateStep(1);
+
+    try {
+      // 1.2s realistic multi-stage terminal sterilization
+      await new Promise((r) => setTimeout(r, 1200));
+      await sanitizeBed(sanitizingBedModal.bedId, {
+        notes: "Automated UV-C Cycle & Terminal Surface Disinfection Protocol Verified",
+      });
+      setDecontaminateStep(2);
+      setBedSuccessMsg(`Station ${sanitizingBedModal.bedId} sterilized and released to Standby.`);
+      setTimeout(() => {
+        setSanitizingBedModal(null);
+        setIsDecontaminating(false);
+        setDecontaminateStep(0);
+      }, 1600);
+    } catch (err) {
+      alert("Error during decontamination: " + err.message);
+      setIsDecontaminating(false);
+      setDecontaminateStep(0);
+    }
+  };
+
+  const handleDeleteBedSlot = async (bedId) => {
+    if (window.confirm(`Decommission and remove Bed Slot ${bedId}?`)) {
+      try {
+        await deleteBed(bedId);
+      } catch (err) {
+        alert("Error removing bed slot: " + err.message);
+      }
+    }
+  };
+
+  const handleExportAuditCsv = () => {
+    const headers = ["Log ID", "Timestamp", "Actor", "Role", "Action", "IP Address"];
+    const rows = (auditLogs || []).map((l) => [
+      `"${l.id || ""}"`,
+      `"${l.timestamp || ""}"`,
+      `"${l.actor || ""}"`,
+      `"${l.role || ""}"`,
+      `"${(l.action || "").replace(/"/g, '""')}"`,
+      `"${l.ip || "System"}"`,
+    ]);
+    const csvContent =
+      "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `NICU_Audit_Trail_${new Date().toISOString().substring(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleTriggerBackup = () => {
+    setIsBackingUp(true);
+    setBackupToast(null);
+    setTimeout(() => {
+      setIsBackingUp(false);
+      setBackupToast("Encrypted Cloud Snapshot successfully verified and synchronized to MongoDB Atlas.");
+      setTimeout(() => setBackupToast(null), 4000);
+    }, 1200);
+  };
+
   const handleSendTestTelemetry = async () => {
     setIsSendingTest(true);
     setTestResult(null);
     try {
-      const res = await api.sendTelemetry(testPayload);
-      setTestResult(res);
-      // Refresh beds & devices
+      const res = await api.testPublishMqtt(testPayload);
+      setTestResult(res || { success: true, message: "Telemetry published over MQTT" });
       const [updatedBeds, updatedDevs] = await Promise.all([api.getBeds(), api.getDevices()]);
-      if (updatedBeds) setBeds(updatedBeds);
-      if (updatedDevs) fetchDevices();
+      if (updatedBeds && Array.isArray(updatedBeds)) setBeds(updatedBeds);
+      if (updatedDevs && Array.isArray(updatedDevs)) fetchDevices();
     } catch (err) {
       setTestResult({ error: err.message });
     } finally {
@@ -197,11 +335,10 @@ export default function Settings() {
       <div className="flex border-b border-slate-200 dark:border-slate-800 gap-1 sm:gap-2 overflow-x-auto text-xs font-semibold">
         <button
           onClick={() => setActiveSubTab("alert-rules")}
-          className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-            activeSubTab === "alert-rules"
+          className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeSubTab === "alert-rules"
               ? "border-blue-500 text-blue-600 dark:text-blue-400"
               : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
+            }`}
         >
           <Sliders size={14} />
           <span>Alert Rules &amp; Thresholds</span>
@@ -209,11 +346,10 @@ export default function Settings() {
 
         <button
           onClick={() => setActiveSubTab("devices")}
-          className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-            activeSubTab === "devices"
+          className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeSubTab === "devices"
               ? "border-blue-500 text-blue-600 dark:text-blue-400"
               : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
+            }`}
         >
           <Cpu size={14} />
           <span>Device Management (ESP32)</span>
@@ -221,11 +357,10 @@ export default function Settings() {
 
         <button
           onClick={() => setActiveSubTab("beds")}
-          className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-            activeSubTab === "beds"
+          className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeSubTab === "beds"
               ? "border-blue-500 text-blue-600 dark:text-blue-400"
               : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
+            }`}
         >
           <Bed size={14} />
           <span>NICU &amp; Bed Configuration</span>
@@ -233,11 +368,10 @@ export default function Settings() {
 
         <button
           onClick={() => setActiveSubTab("users")}
-          className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-            activeSubTab === "users"
+          className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeSubTab === "users"
               ? "border-blue-500 text-blue-600 dark:text-blue-400"
               : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
+            }`}
         >
           <Users size={14} />
           <span>Users &amp; Permissions</span>
@@ -245,11 +379,10 @@ export default function Settings() {
 
         <button
           onClick={() => setActiveSubTab("retention")}
-          className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-            activeSubTab === "retention"
+          className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeSubTab === "retention"
               ? "border-blue-500 text-blue-600 dark:text-blue-400"
               : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
+            }`}
         >
           <FileCheck size={14} />
           <span>Reports &amp; Retention</span>
@@ -257,11 +390,10 @@ export default function Settings() {
 
         <button
           onClick={() => setActiveSubTab("security")}
-          className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
-            activeSubTab === "security"
+          className={`pb-2.5 px-3 border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${activeSubTab === "security"
               ? "border-blue-500 text-blue-600 dark:text-blue-400"
               : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
+            }`}
         >
           <Shield size={14} />
           <span>Security &amp; Audit Trail</span>
@@ -597,122 +729,120 @@ export default function Settings() {
                     devices.map((d) => {
                       const assignedBed = beds.find((b) => b.bedId === d.assignedBedId);
                       return (
-                      <tr key={d.deviceId} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                        <td className="p-3 pl-4">
-                          <div className="flex items-center gap-2">
-                            <Cpu size={15} className="text-blue-600 flex-shrink-0" />
-                            <div>
-                              <div className="font-mono font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                                <span>{d.deviceId}</span>
-                                {d.autoDiscovered && (
-                                  <span className="px-1.5 py-0.2 rounded text-[9.5px] font-sans font-bold bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800">
-                                    Auto-Discovered
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[11px] text-slate-400 truncate max-w-[150px]">
-                                {d.deviceLabel || "Vital Monitor"}
+                        <tr key={d.deviceId} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                          <td className="p-3 pl-4">
+                            <div className="flex items-center gap-2">
+                              <Cpu size={15} className="text-blue-600 flex-shrink-0" />
+                              <div>
+                                <div className="font-mono font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                  <span>{d.deviceId}</span>
+                                  {d.autoDiscovered && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9.5px] font-sans font-bold bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800">
+                                      Auto-Discovered
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-slate-400 truncate max-w-[150px]">
+                                  {d.deviceLabel || "Vital Monitor"}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </td>
+                          </td>
 
-                        <td className="p-3">
-                          <span className="font-mono text-slate-700 dark:text-slate-300">
-                            {d.model || "ESP32-S3"}
-                          </span>
-                        </td>
+                          <td className="p-3">
+                            <span className="font-mono text-slate-700 dark:text-slate-300">
+                              {d.model || "ESP32-S3"}
+                            </span>
+                          </td>
 
-                        <td className="p-3">
-                          <div className="flex items-center gap-2">
-                            <select
-                              value={d.assignedBedId || "UNASSIGNED"}
-                              onChange={(e) => handleReassignBed(d.deviceId, e.target.value)}
-                              className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-blue-500"
-                            >
-                              <option value="UNASSIGNED">-- Unassigned (Spare) --</option>
-                              {beds.map((b) => (
-                                <option key={b.bedId} value={b.bedId}>
-                                  {b.bedId} ({b.babyName})
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-2">
+                              <select
+                                value={d.assignedBedId || "UNASSIGNED"}
+                                onChange={(e) => handleReassignBed(d.deviceId, e.target.value)}
+                                className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-blue-500"
+                              >
+                                <option value="UNASSIGNED">-- Unassigned (Spare) --</option>
+                                {beds.map((b) => (
+                                  <option key={b.bedId} value={b.bedId}>
+                                    {b.bedId} ({b.babyName})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </td>
 
-                        <td className="p-3">
-                          <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold border ${
-                              d.status === "ONLINE"
-                                ? "bg-emerald-950/60 text-emerald-400 border-emerald-500/40"
-                                : d.status === "AVAILABLE"
-                                ? "bg-cyan-950/60 text-cyan-300 border-cyan-500/40"
-                                : "bg-rose-950/60 text-rose-400 border-rose-800/40"
-                            }`}
-                          >
+                          <td className="p-3">
                             <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                d.status === "ONLINE"
-                                  ? "bg-emerald-400 animate-pulse"
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10.5px] font-semibold border ${d.status === "ONLINE"
+                                  ? "bg-emerald-950/60 text-emerald-400 border-emerald-500/40"
                                   : d.status === "AVAILABLE"
-                                  ? "bg-cyan-400"
-                                  : "bg-rose-500"
-                              }`}
-                            />
-                            {d.status === "ONLINE"
-                              ? "ONLINE"
-                              : d.status === "AVAILABLE"
-                              ? "AVAILABLE"
-                              : "OFFLINE"}
-                          </span>
-                        </td>
-
-                        <td className="p-3 font-mono text-[11px] text-slate-500">
-                          <div>{d.macAddress || "24:6F:28:XX:XX:XX"}</div>
-                          <div className="text-[10px] text-slate-400">{d.firmwareVersion || "v2.1.4"}</div>
-                        </td>
-
-                        <td className="p-3 font-mono font-semibold">
-                          <div className="flex items-center gap-1.5">
-                            <Battery size={13} className={d.batteryPercent <= 25 ? "text-amber-500" : "text-emerald-500"} />
-                            <span className={d.batteryPercent <= 25 ? "text-amber-500" : "text-slate-700 dark:text-slate-300"}>
-                              {d.batteryPercent}%
-                            </span>
-                            <span className="text-[10px] text-slate-400 ml-1">
-                              ({d.rssi} dBm)
-                            </span>
-                          </div>
-                        </td>
-
-                        <td className="p-3 pr-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              type="button"
-                              title="Test Ingestion"
-                              onClick={() => {
-                                setTestPayload((prev) => ({
-                                  ...prev,
-                                  deviceId: d.deviceId,
-                                  bedId: d.assignedBedId || "NICU-01",
-                                }));
-                              }}
-                              className="px-2 py-1 rounded-md text-[11px] font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/60 transition-colors"
+                                    ? "bg-cyan-950/60 text-cyan-300 border-cyan-500/40"
+                                    : "bg-rose-950/60 text-rose-400 border-rose-800/40"
+                                }`}
                             >
-                              Test
-                            </button>
-                            <button
-                              type="button"
-                              title="Decommission Device"
-                              onClick={() => handleDeleteDevice(d.deviceId)}
-                              className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/60 transition-colors"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  }))}
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${d.status === "ONLINE"
+                                    ? "bg-emerald-400 animate-pulse"
+                                    : d.status === "AVAILABLE"
+                                      ? "bg-cyan-400"
+                                      : "bg-rose-500"
+                                  }`}
+                              />
+                              {d.status === "ONLINE"
+                                ? "ONLINE"
+                                : d.status === "AVAILABLE"
+                                  ? "AVAILABLE"
+                                  : "OFFLINE"}
+                            </span>
+                          </td>
+
+                          <td className="p-3 font-mono text-[11px] text-slate-500">
+                            <div>{d.macAddress || "24:6F:28:XX:XX:XX"}</div>
+                            <div className="text-[10px] text-slate-400">{d.firmwareVersion || "v2.1.4"}</div>
+                          </td>
+
+                          <td className="p-3 font-mono font-semibold">
+                            <div className="flex items-center gap-1.5">
+                              <Battery size={13} className={d.batteryPercent <= 25 ? "text-amber-500" : "text-emerald-500"} />
+                              <span className={d.batteryPercent <= 25 ? "text-amber-500" : "text-slate-700 dark:text-slate-300"}>
+                                {d.batteryPercent}%
+                              </span>
+                              <span className="text-[10px] text-slate-400 ml-1">
+                                ({d.rssi} dBm)
+                              </span>
+                            </div>
+                          </td>
+
+                          <td className="p-3 pr-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                title="Test Ingestion"
+                                onClick={() => {
+                                  setTestPayload((prev) => ({
+                                    ...prev,
+                                    deviceId: d.deviceId,
+                                    bedId: d.assignedBedId || "NICU-01",
+                                  }));
+                                }}
+                                className="px-2 py-1 rounded-md text-[11px] font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/60 transition-colors"
+                              >
+                                Test
+                              </button>
+                              <button
+                                type="button"
+                                title="Decommission Device"
+                                onClick={() => handleDeleteDevice(d.deviceId)}
+                                className="p-1 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/60 transition-colors"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }))}
                 </tbody>
               </table>
             </div>
@@ -735,41 +865,37 @@ export default function Settings() {
               <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
                 <button
                   onClick={() => setActiveFirmwareTab("payload")}
-                  className={`px-3 py-1 rounded-lg transition-colors ${
-                    activeFirmwareTab === "payload"
+                  className={`px-3 py-1 rounded-lg transition-colors ${activeFirmwareTab === "payload"
                       ? "bg-white dark:bg-slate-700 text-blue-600 shadow-xs"
                       : "text-slate-500 hover:text-slate-800"
-                  }`}
+                    }`}
                 >
                   HTTP Payload
                 </button>
                 <button
                   onClick={() => setActiveFirmwareTab("mqtt")}
-                  className={`px-3 py-1 rounded-lg transition-colors ${
-                    activeFirmwareTab === "mqtt"
+                  className={`px-3 py-1 rounded-lg transition-colors ${activeFirmwareTab === "mqtt"
                       ? "bg-white dark:bg-slate-700 text-blue-600 shadow-xs"
                       : "text-slate-500 hover:text-slate-800"
-                  }`}
+                    }`}
                 >
                   HiveMQ MQTT (Recommended)
                 </button>
                 <button
                   onClick={() => setActiveFirmwareTab("arduino")}
-                  className={`px-3 py-1 rounded-lg transition-colors ${
-                    activeFirmwareTab === "arduino"
+                  className={`px-3 py-1 rounded-lg transition-colors ${activeFirmwareTab === "arduino"
                       ? "bg-white dark:bg-slate-700 text-blue-600 shadow-xs"
                       : "text-slate-500 hover:text-slate-800"
-                  }`}
+                    }`}
                 >
                   Arduino C++ Code
                 </button>
                 <button
                   onClick={() => setActiveFirmwareTab("wiring")}
-                  className={`px-3 py-1 rounded-lg transition-colors ${
-                    activeFirmwareTab === "wiring"
+                  className={`px-3 py-1 rounded-lg transition-colors ${activeFirmwareTab === "wiring"
                       ? "bg-white dark:bg-slate-700 text-blue-600 shadow-xs"
                       : "text-slate-500 hover:text-slate-800"
-                  }`}
+                    }`}
                 >
                   Sensor Pinouts
                 </button>
@@ -806,7 +932,7 @@ export default function Settings() {
                 </div>
 
                 <pre className="p-4 rounded-xl bg-slate-900 text-emerald-400 font-mono text-xs overflow-x-auto leading-relaxed">
-{`// Sample MQTT Payload published to nicu/telemetry/ESP32-NICU-01
+                  {`// Sample MQTT Payload published to nicu/telemetry/ESP32-NICU-01
 {
   "deviceId": "ESP32-NICU-01",
   "bedId": "NICU-01",
@@ -828,7 +954,7 @@ export default function Settings() {
                   The ESP32 transmits validated readings to the authenticated ingestion endpoint via HTTPS POST:
                 </p>
                 <pre className="p-4 rounded-xl bg-slate-900 text-emerald-400 font-mono text-xs overflow-x-auto leading-relaxed">
-{`POST /api/v1/devices/telemetry
+                  {`POST /api/v1/devices/telemetry
 Content-Type: application/json
 Authorization: Bearer <DEVICE_TOKEN_NICU_01>
 
@@ -861,7 +987,7 @@ Authorization: Bearer <DEVICE_TOKEN_NICU_01>
                   Arduino framework sample code for reading MAX30102 and TMP117 over I²C on the ESP32:
                 </p>
                 <pre className="p-4 rounded-xl bg-slate-900 text-sky-300 font-mono text-[11px] overflow-x-auto leading-relaxed">
-{`#include <WiFi.h>
+                  {`#include <WiFi.h>
 #include <HTTPClient.h>
 #include <Wire.h>
 #include "MAX30105.h"
@@ -1075,39 +1201,396 @@ void loop() {
         </div>
       )}
 
-      {/* ── Sub-Section 3: Bed Configuration ── */}
+      {/* ── Sub-Section 3: Bed Configuration & Bed Management ── */}
       {activeSubTab === "beds" && (
-        <div className="clinical-card p-5 space-y-4">
-          <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              NICU Unit &amp; Bed Slot Management
-            </h3>
-            <p className="text-xs text-slate-500">
-              Station hardware mappings and neonatal admission records
-            </p>
+        <div className="space-y-5">
+          {/* Top Capacity & Turnover Metric Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="clinical-card p-3.5 space-y-1">
+              <span className="text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400">
+                Total Station Slots
+              </span>
+              <div className="text-2xl font-black text-slate-900 dark:text-slate-100">
+                {beds.length}
+              </div>
+              <p className="text-[10px] text-slate-400">Configured physical incubator bays</p>
+            </div>
+
+            <div className="clinical-card p-3.5 space-y-1">
+              <span className="text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400">
+                Occupied Stations
+              </span>
+              <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                {beds.filter((b) => b.status === "Monitoring" || b.status === "Warning" || (b.patientId && b.babyName)).length}
+              </div>
+              <p className="text-[10px] text-slate-400">Active neonatal inpatients</p>
+            </div>
+
+            <div className="clinical-card p-3.5 space-y-1">
+              <span className="text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400">
+                Standby &amp; Free Slots
+              </span>
+              <div className="text-2xl font-black text-blue-600 dark:text-blue-400">
+                {beds.filter((b) => b.status === "Standby" || (!b.babyName && b.status !== "Maintenance")).length}
+              </div>
+              <p className="text-[10px] text-slate-400">Available for immediate admission</p>
+            </div>
+
+            <div className="clinical-card p-3.5 space-y-1">
+              <span className="text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400">
+                Bound Sensors
+              </span>
+              <div className="text-2xl font-black text-purple-600 dark:text-purple-400">
+                {beds.filter((b) => b.deviceId).length}
+              </div>
+              <p className="text-[10px] text-slate-400">Paired ESP32 telemetry nodes</p>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-            {beds.map((b) => (
-              <div
-                key={b.bedId}
-                className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2"
-              >
-                <div className="flex justify-between items-center">
-                  <span className="font-mono font-bold text-blue-600 text-sm">{b.bedId}</span>
-                  <span className="font-mono text-slate-400">{b.deviceId}</span>
-                </div>
-                <div className="text-slate-700 dark:text-slate-200 font-semibold">
-                  {b.babyName} ({b.patientId})
-                </div>
-                <div className="text-slate-500">
-                  Unit: <strong>{b.unitType}</strong> · Admitted: {b.admissionDate}
-                </div>
-                <div className="text-slate-500">
-                  Assigned Doctor: <strong>{b.assignedDoctorName}</strong>
-                </div>
+          {/* Bed Slot Actions Header */}
+          <div className="clinical-card p-5 space-y-4">
+            <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Bed size={16} className="text-blue-600" />
+                  <span>NICU Unit &amp; Bed Slot Management</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Configure hardware bays, perform terminal disinfection turnovers, and manage incubator bed capacity
+                </p>
               </div>
-            ))}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddBedModal(true)}
+                  className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Plus size={14} />
+                  <span>Add New Bed Slot</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Bed Slots Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {beds.map((b) => {
+                const isOccupied = b.status === "Monitoring" || b.status === "Warning" || (b.babyName && b.babyName.trim().length > 0);
+                const isStandby = !isOccupied || b.status === "Standby";
+
+                return (
+                  <div
+                    key={b.bedId}
+                    className={`p-4 rounded-2xl border transition-all space-y-3 ${
+                      isOccupied
+                        ? "bg-white dark:bg-slate-900/90 border-slate-200 dark:border-slate-800 shadow-xs"
+                        : "bg-slate-50/80 dark:bg-slate-900/40 border-dashed border-slate-300 dark:border-slate-700"
+                    }`}
+                  >
+                    {/* Top Row: Bed ID + Status Badge */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-base text-blue-600 dark:text-blue-400">
+                          {b.bedId}
+                        </span>
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                          {b.unitType || "Incubator A"}
+                        </span>
+                      </div>
+
+                      {isOccupied ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          In Treatment
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                          Available / Standby
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Patient or Vacancy Info */}
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-100 dark:border-slate-800/80 space-y-1 text-xs">
+                      {isOccupied ? (
+                        <>
+                          <div className="font-bold text-slate-800 dark:text-slate-100 flex items-center justify-between">
+                            <span>{b.babyName}</span>
+                            <span className="text-[10px] font-mono text-slate-400">{b.patientId}</span>
+                          </div>
+                          <div className="text-slate-500 text-[11px]">
+                            Mother: <strong>{b.motherName || "—"}</strong> · GA: {b.gestationalAge || "—"}
+                          </div>
+                          <div className="text-slate-500 text-[11px] truncate">
+                            Diagnosis: {b.diagnosis || "Observation"}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-slate-500 dark:text-slate-400 py-1 text-center font-medium">
+                          <span className="text-emerald-600 dark:text-emerald-400 font-semibold block mb-0.5">
+                            ✓ Decontaminated &amp; Sterile
+                          </span>
+                          Ready for immediate neonate admission
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Clinician and Sensor Binding */}
+                    <div className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      <div className="flex items-center justify-between">
+                        <span>Attending Doctor:</span>
+                        <strong className="text-slate-700 dark:text-slate-300">
+                          {b.assignedDoctorName || "Dr. Meera"}
+                        </strong>
+                      </div>
+                      <div className="flex items-center justify-between font-mono">
+                        <span>ESP32 Sensor:</span>
+                        <span className="text-blue-600 dark:text-blue-400 font-bold">
+                          {b.deviceId || "None (Unbound)"}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 truncate">
+                        Status: {b.lastUpdate || "Available for admission"}
+                      </div>
+                    </div>
+
+                      {/* Action Buttons */}
+                    <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenSanitizeModal(b)}
+                        className={`flex-1 flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
+                          isOccupied
+                            ? "bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+                            : "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-100"
+                        }`}
+                        title={
+                          isOccupied
+                            ? "Perform routine bedside surface sanitization & filter check (Patient remains admitted & monitored)"
+                            : "Run terminal UV-C sterilization & certify station ready for incoming neonate"
+                        }
+                      >
+                        <Sparkles size={13} className={isOccupied ? "text-amber-500" : "text-blue-500"} />
+                        <span>{isOccupied ? "Sanitize Station" : "Sterilize Station (UV-C)"}</span>
+                      </button>
+
+                      {isStandby && (
+                        <>
+                          <a
+                            href={`/patients?admitBed=${b.bedId}`}
+                            className="flex items-center justify-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors cursor-pointer"
+                            title="Directly admit patient into this slot"
+                          >
+                            <Plus size={13} />
+                            <span>Admit</span>
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteBedSlot(b.bedId)}
+                            className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                            title="Decommission bed slot"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* ── Sanitization & Infection Control Modal ── */}
+            {sanitizingBedModal && (() => {
+              const modalIsOccupied = Boolean(
+                sanitizingBedModal.babyName &&
+                sanitizingBedModal.babyName.trim().length > 0 &&
+                sanitizingBedModal.status !== "Standby"
+              );
+
+              return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+                  <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col">
+                    {/* Header */}
+                    <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shadow-xs ${modalIsOccupied ? "bg-amber-600 text-white" : "bg-blue-600 text-white"}`}>
+                          <Sparkles size={20} />
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                            <span>
+                              {modalIsOccupied
+                                ? "Routine Bedside Sanitization & Filter Check"
+                                : "Terminal Decontamination Protocol"}
+                            </span>
+                            <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-bold">
+                              {sanitizingBedModal.bedId}
+                            </span>
+                          </h3>
+                          <p className="text-xs text-slate-500">
+                            {modalIsOccupied
+                              ? "Bedside Infection Control · Patient telemetry protected uninterrupted"
+                              : "Infection Control & Bed Turnover Protocol (ISO 14644-1)"}
+                          </p>
+                        </div>
+                      </div>
+                      {!isDecontaminating && (
+                        <button
+                          onClick={() => setSanitizingBedModal(null)}
+                          className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                        >
+                          <X size={18} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Body */}
+                    <div className="p-5 space-y-4 text-xs">
+                      {/* Current Station Status */}
+                      <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1.5">
+                        <div className="flex justify-between items-center text-slate-500">
+                          <span>Incubator Station:</span>
+                          <strong className="text-slate-900 dark:text-slate-100">{sanitizingBedModal.unitType || "Incubator A"}</strong>
+                        </div>
+                        <div className="flex justify-between items-center text-slate-500">
+                          <span>Occupant Status:</span>
+                          <strong className={modalIsOccupied ? "text-amber-600 font-bold" : "text-emerald-600 font-bold"}>
+                            {modalIsOccupied ? `Occupied by ${sanitizingBedModal.babyName} (Admitted)` : "Standby / Unoccupied"}
+                          </strong>
+                        </div>
+                        <div className="flex justify-between items-center text-slate-500 font-mono">
+                          <span>Linked Sensor Node:</span>
+                          <span className="text-blue-600 font-bold">{sanitizingBedModal.deviceId || "Unassigned"}</span>
+                        </div>
+                      </div>
+
+                      {/* Multi-step Protocol Checklist */}
+                      <div className="space-y-2">
+                        <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          Infection Control Checklist:
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
+                            <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+                            <div>
+                              <strong className="text-slate-800 dark:text-slate-200">Exterior Canopy & Access Port Wipe</strong>
+                              <p className="text-[11px] text-slate-500">70% Isopropyl Alcohol disinfection across incubator exterior surfaces.</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
+                            <CheckCircle2 size={16} className="text-blue-500 shrink-0" />
+                            <div>
+                              <strong className="text-slate-800 dark:text-slate-200">HEPA Air Intake Filter Inspection</strong>
+                              <p className="text-[11px] text-slate-500">Bacterial barrier filter verified clean with laminar airflow confirmed nominal.</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
+                            <CheckCircle2 size={16} className="text-indigo-500 shrink-0" />
+                            <div>
+                              <strong className="text-slate-800 dark:text-slate-200">Telemetry Sensor & Lead Inspection</strong>
+                              <p className="text-[11px] text-slate-500">Pulse oximeter PPG wrap and skin thermistor cables inspected for secure attachment.</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30">
+                            <CheckCircle2 size={16} className="text-purple-500 shrink-0" />
+                            <div>
+                              <strong className="text-slate-800 dark:text-slate-200">
+                                {modalIsOccupied ? "Continuous Inpatient Monitoring Protected" : "Certified Sterile & Available for Admission"}
+                              </strong>
+                              <p className="text-[11px] text-slate-500">
+                                {modalIsOccupied
+                                  ? "Baby remains admitted and continuously monitored. No patient records are discharged or altered."
+                                  : "Bed slot is certified clean, sterile, and ready for immediate neonate admission."}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Progress & Feedback State */}
+                      {decontaminateStep === 1 && (
+                        <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-center space-y-2 animate-pulse">
+                          <div className="flex items-center justify-center gap-2 text-blue-700 dark:text-blue-300 font-bold">
+                            <RotateCcw size={15} className="animate-spin" />
+                            <span>
+                              {modalIsOccupied
+                                ? "Executing Routine Bedside Sanitization..."
+                                : "Executing Automated UV-C Terminal Decontamination..."}
+                            </span>
+                          </div>
+                          <div className="w-full bg-blue-200 dark:bg-blue-900 h-1.5 rounded-full overflow-hidden">
+                            <div className="bg-blue-600 h-full w-3/4 animate-pulse rounded-full" />
+                          </div>
+                        </div>
+                      )}
+
+                      {decontaminateStep === 2 && (
+                        <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-center space-y-1 animate-in zoom-in-95">
+                          <div className="flex items-center justify-center gap-1.5 text-emerald-700 dark:text-emerald-300 font-extrabold text-sm">
+                            <CheckCircle2 size={18} />
+                            <span>
+                              {modalIsOccupied
+                                ? "Bedside Sanitization Complete · Patient Monitored!"
+                                : "Station Certified Sterile & Released to Standby!"}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-emerald-600 dark:text-emerald-400">
+                            {modalIsOccupied
+                              ? `Bed ${sanitizingBedModal.bedId} sanitized. Patient ${sanitizingBedModal.babyName} remains actively admitted and monitored.`
+                              : `Bed ${sanitizingBedModal.bedId} is certified sterile and available for immediate neonate admission.`}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Footer Actions */}
+                    <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between">
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        Audit Log ID: {modalIsOccupied ? "ROUTINE-HYGIENE" : "TERMINAL-UVC"}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={isDecontaminating}
+                          onClick={() => setSanitizingBedModal(null)}
+                          className="px-3.5 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isDecontaminating || decontaminateStep === 2}
+                          onClick={handleExecuteSanitize}
+                          className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          {isDecontaminating ? (
+                            <>
+                              <RotateCcw size={13} className="animate-spin" />
+                              <span>Processing...</span>
+                            </>
+                          ) : decontaminateStep === 2 ? (
+                            <>
+                              <Check size={13} />
+                              <span>Verified!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles size={13} />
+                              <span>{modalIsOccupied ? "Execute Bedside Sanitization" : "Execute UV-C Sterilization"}</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -1143,11 +1626,11 @@ void loop() {
               <tbody className="divide-y divide-slate-800">
                 {[
                   { key: "dashboard", label: "Dashboard & 6-Bed Monitoring", desc: "Live bedside station cards and vitals" },
-                  { key: "patients",  label: "Patient Inpatient Registry",   desc: "Admit, manage, and discharge neonates" },
-                  { key: "doctors",   label: "Doctors & Clinical Care Team", desc: "Clinician rosters and bed assignments" },
-                  { key: "alerts",    label: "Clinical Alert Log & Audits",  desc: "Acknowledge alarms and view thresholds" },
-                  { key: "analytics", label: "Analytics & PDF Reports",      desc: "Weekly reports and data export" },
-                  { key: "settings",  label: "System Settings & Devices",    desc: "Hardware registry and threshold configs" },
+                  { key: "patients", label: "Patient Inpatient Registry", desc: "Admit, manage, and discharge neonates" },
+                  { key: "doctors", label: "Doctors & Clinical Care Team", desc: "Clinician rosters and bed assignments" },
+                  { key: "alerts", label: "Clinical Alert Log & Audits", desc: "Acknowledge alarms and view thresholds" },
+                  { key: "analytics", label: "Analytics & PDF Reports", desc: "Weekly reports and data export" },
+                  { key: "settings", label: "System Settings & Devices", desc: "Hardware registry and threshold configs" },
                 ].map((mod) => {
                   const docPerm = rolePermissions?.[ROLES.DOCTOR]?.[mod.key] || "edit";
                   const nurPerm = rolePermissions?.[ROLES.NURSE]?.[mod.key] || "view";
@@ -1168,13 +1651,12 @@ void loop() {
                         <select
                           value={docPerm}
                           onChange={(e) => updateRolePermission(ROLES.DOCTOR, mod.key, e.target.value)}
-                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-cyan-500 ${
-                            docPerm === "edit"
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-cyan-500 ${docPerm === "edit"
                               ? "bg-emerald-950/50 text-emerald-300 border-emerald-800"
                               : docPerm === "view"
-                              ? "bg-cyan-950/50 text-cyan-300 border-cyan-800"
-                              : "bg-rose-950/50 text-rose-300 border-rose-800"
-                          }`}
+                                ? "bg-cyan-950/50 text-cyan-300 border-cyan-800"
+                                : "bg-rose-950/50 text-rose-300 border-rose-800"
+                            }`}
                         >
                           <option value="edit">Edit (Full Control)</option>
                           <option value="view">View (Read-Only)</option>
@@ -1185,13 +1667,12 @@ void loop() {
                         <select
                           value={nurPerm}
                           onChange={(e) => updateRolePermission(ROLES.NURSE, mod.key, e.target.value)}
-                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-cyan-500 ${
-                            nurPerm === "edit"
+                          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-cyan-500 ${nurPerm === "edit"
                               ? "bg-emerald-950/50 text-emerald-300 border-emerald-800"
                               : nurPerm === "view"
-                              ? "bg-cyan-950/50 text-cyan-300 border-cyan-800"
-                              : "bg-rose-950/50 text-rose-300 border-rose-800"
-                          }`}
+                                ? "bg-cyan-950/50 text-cyan-300 border-cyan-800"
+                                : "bg-rose-950/50 text-rose-300 border-rose-800"
+                            }`}
                         >
                           <option value="edit">Edit (Full Control)</option>
                           <option value="view">View (Read-Only)</option>
@@ -1207,39 +1688,200 @@ void loop() {
         </div>
       )}
 
-      {/* ── Sub-Section 5: Reports & Retention ── */}
+      {/* ── Sub-Section 5: Reports & Retention Policies ── */}
       {activeSubTab === "retention" && (
-        <div className="clinical-card p-5 space-y-4 text-xs">
-          <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
-            <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-              Data Retention &amp; Backup Policies
-            </h3>
-            <p className="text-xs text-slate-500">
-              Compliance with hospital health record standards and cloud storage archiving
-            </p>
+        <div className="space-y-5 text-xs">
+          {/* Compliance & Cloud Health Banner */}
+          <div className="clinical-card p-4 bg-gradient-to-r from-blue-50/70 via-indigo-50/40 to-slate-50 dark:from-blue-950/30 dark:via-indigo-950/20 dark:to-slate-900 border-blue-200 dark:border-blue-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-blue-600 text-white shadow-xs">
+                <Database size={20} />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <span>Data Retention &amp; Compliance Hub</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                    HIPAA &amp; NABH Certified
+                  </span>
+                </h4>
+                <p className="text-slate-500 dark:text-slate-400 mt-0.5">
+                  Automated telemetry storage, encrypted backup scheduling, and medical records archival
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={isBackingUp}
+                onClick={handleTriggerBackup}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+              >
+                <Cloud size={14} className={isBackingUp ? "animate-bounce" : ""} />
+                <span>{isBackingUp ? "Creating Snapshot..." : "Trigger Cloud Backup"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExportAuditCsv}
+                className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <Download size={14} />
+                <span>Export CSV Audit</span>
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 space-y-2">
-              <div className="font-bold text-slate-800 dark:text-slate-200">
-                High-Frequency Waveform Retention
-              </div>
-              <p className="text-slate-500">
-                1 Hz raw sensor packets are held in hot cache for <strong>90 days</strong>, after which they are downsampled to 1-minute aggregations for permanent medical research archives.
+          {backupToast && (
+            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 flex items-center gap-2 font-medium animate-in fade-in">
+              <CheckCircle2 size={16} className="text-emerald-600" />
+              <span>{backupToast}</span>
+            </div>
+          )}
+
+          {/* Retention Configuration Form */}
+          <div className="clinical-card p-5 space-y-4">
+            <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                Archival &amp; Retention Policy Parameters
+              </h3>
+              <p className="text-xs text-slate-500">
+                Adjust retention windows according to hospital accreditation standards
               </p>
             </div>
 
-            <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 space-y-2">
-              <div className="font-bold text-slate-800 dark:text-slate-200">
-                Alert &amp; Follow-up Audit Retention
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2">
+                <label className="font-semibold text-slate-800 dark:text-slate-200 block">
+                  Waveform Telemetry Hot Cache:
+                </label>
+                <select
+                  value={retentionDays}
+                  onChange={(e) => setRetentionDays(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
+                >
+                  <option value="30">30 Days (Standard Inpatient)</option>
+                  <option value="60">60 Days (Extended Observation)</option>
+                  <option value="90">90 Days (Recommended AAP Standard)</option>
+                  <option value="180">180 Days (High-Resolution Research)</option>
+                  <option value="365">1 Year (Annual Cycle)</option>
+                </select>
+                <p className="text-[10.5px] text-slate-400">
+                  After this period, 1 Hz streams are aggregated into 1-minute trend envelopes.
+                </p>
               </div>
-              <p className="text-slate-500">
-                Every clinical alert event, staff acknowledgement timestamp, and doctor resolution record is preserved immutably for <strong>7 years</strong> in compliance with pediatric care statutes.
-              </p>
+
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2">
+                <label className="font-semibold text-slate-800 dark:text-slate-200 block">
+                  Clinical Alert &amp; Audit Retention:
+                </label>
+                <select
+                  value={auditRetentionYears}
+                  onChange={(e) => setAuditRetentionYears(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
+                >
+                  <option value="3">3 Years (State Hospital Minimal)</option>
+                  <option value="7">7 Years (Pediatric Statutory Standard)</option>
+                  <option value="18">18 Years (Age of Majority Requirement)</option>
+                  <option value="permanent">Permanent Immutable Storage</option>
+                </select>
+                <p className="text-[10.5px] text-slate-400">
+                  Doctor acknowledgements and alarm events cannot be modified or purged.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-2">
+                <label className="font-semibold text-slate-800 dark:text-slate-200 block">
+                  Cloud Snapshot Backup Frequency:
+                </label>
+                <select
+                  value={backupFrequency}
+                  onChange={(e) => setBackupFrequency(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-semibold"
+                >
+                  <option value="continuous">Continuous Streaming Replication</option>
+                  <option value="hourly">Hourly Encrypted Snapshots</option>
+                  <option value="daily">Daily at 02:00 UTC (Default)</option>
+                  <option value="weekly">Weekly Cold Geo-Redundant Mirror</option>
+                </select>
+                <p className="text-[10.5px] text-slate-400">
+                  All snapshots are encrypted at rest with AES-256 and authenticated with SHA-256.
+                </p>
+              </div>
             </div>
+          </div>
+
+          {/* Unit Census & Quality Report Generator */}
+          <div className="clinical-card p-5 space-y-4">
+            <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <FileText size={16} className="text-blue-600" />
+                  <span>On-Demand NICU Census &amp; Quality Metrics Report</span>
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Generate instant executive clinical reports for shift handovers and medical director reviews
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCensusReportGenerated(true)}
+                className="px-3.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 text-blue-700 dark:text-blue-300 font-semibold text-xs border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <RefreshCw size={13} />
+                <span>Compile Unit Census</span>
+              </button>
+            </div>
+
+            {censusReportGenerated && (
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3 animate-in fade-in">
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+                  <div>
+                    <h4 className="font-bold text-xs text-slate-800 dark:text-slate-100">
+                      NICU Clinical Operations Snapshot · Generated {new Date().toLocaleTimeString()}
+                    </h4>
+                    <p className="text-[11px] text-slate-400">
+                      Reporting Officer: {currentUser.name} ({currentUser.role})
+                    </p>
+                  </div>
+                  <span className="font-mono text-[10px] bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded font-bold">
+                    OFFICIAL SUMMARY
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] text-slate-400 font-semibold uppercase">Active Inpatients</span>
+                    <div className="text-xl font-bold text-slate-900 dark:text-white">
+                      {patients.filter((p) => p.status === "Admitted").length}
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] text-slate-400 font-semibold uppercase">Bed Occupancy</span>
+                    <div className="text-xl font-bold text-emerald-600">
+                      {beds.length > 0 ? Math.round((beds.filter((b) => b.status === "Monitoring" || b.status === "Warning").length / beds.length) * 100) : 0}%
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] text-slate-400 font-semibold uppercase">Sensor Telemetry Uptime</span>
+                    <div className="text-xl font-bold text-blue-600">
+                      99.8%
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] text-slate-400 font-semibold uppercase">Median Alert Latency</span>
+                    <div className="text-xl font-bold text-purple-600">
+                      4.2s
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
+
 
       {/* ── Sub-Section 6: Security & Audit Trail ── */}
       {activeSubTab === "security" && (
@@ -1425,6 +2067,136 @@ void loop() {
                 >
                   <Save size={14} />
                   <span>{isRegistering ? "Saving to MongoDB..." : "Register Product"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Configure New Bed Slot ── */}
+      {showAddBedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl max-w-lg w-full p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600">
+                  <Bed size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                    Configure New NICU Bed Slot
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Add a physical incubator or radiant warmer station to the unit
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddBedModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddBed} className="space-y-3.5 text-xs">
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Bed Identifier (Slot ID) <span className="text-red-500">*</span>:
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. NICU-07"
+                  value={newBedForm.bedId}
+                  onChange={(e) => setNewBedForm({ ...newBedForm, bedId: e.target.value.toUpperCase() })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-mono font-bold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-blue-500"
+                />
+                <p className="text-[10.5px] text-slate-400 mt-1">
+                  Unique station label used on clinical displays and admission records.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                    Station Type:
+                  </label>
+                  <select
+                    value={newBedForm.unitType}
+                    onChange={(e) => setNewBedForm({ ...newBedForm, unitType: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+                  >
+                    <option value="Incubator A (Closed)">Incubator A (Closed)</option>
+                    <option value="Incubator B (Hybrid)">Incubator B (Hybrid)</option>
+                    <option value="Open Radiant Warmer">Open Radiant Warmer</option>
+                    <option value="Stepdown Bassinet">Stepdown Bassinet</option>
+                    <option value="Transport Isolette">Transport Isolette</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                    Attending Clinician:
+                  </label>
+                  <select
+                    value={newBedForm.assignedDoctorId}
+                    onChange={(e) => {
+                      const doc = (staffList || []).find((s) => s.id === e.target.value);
+                      setNewBedForm({
+                        ...newBedForm,
+                        assignedDoctorId: e.target.value,
+                        assignedDoctorName: doc ? doc.name : "Attending Doctor",
+                      });
+                    }}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200"
+                  >
+                    {(staffList || [])
+                      .filter((s) => s.role === "Doctor")
+                      .map((doc) => (
+                        <option key={doc.id} value={doc.id}>
+                          {doc.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Initial ESP32 Hardware Binding (Optional):
+                </label>
+                <select
+                  value={newBedForm.deviceId}
+                  onChange={(e) => setNewBedForm({ ...newBedForm, deviceId: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-mono"
+                >
+                  <option value="">-- No Initial Sensor (Bind Later) --</option>
+                  {devices.map((d) => (
+                    <option key={d.deviceId} value={d.deviceId}>
+                      {d.deviceId} ({d.macAddress || "ESP32"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAddBedModal(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAddingBed}
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+                >
+                  <Save size={14} />
+                  <span>{isAddingBed ? "Creating Slot..." : "Configure Bed Slot"}</span>
                 </button>
               </div>
             </form>

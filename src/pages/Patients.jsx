@@ -140,11 +140,19 @@ export default function Patients() {
       .map((p) => p.deviceId);
   }, [patients]);
 
-  // Available beds for admission (only unoccupied beds)
+  // Available beds for admission: any bed not currently occupied by an active "Admitted" patient
   const availableBeds = useMemo(() => {
-    const allBedIds = beds && beds.length > 0 ? beds.map((b) => b.bedId) : ["NICU-01", "NICU-02", "NICU-03", "NICU-04", "NICU-05", "NICU-06"];
-    return allBedIds.filter((bId) => !occupiedBedIds.includes(bId));
-  }, [beds, occupiedBedIds]);
+    const allBedsList = beds && beds.length > 0
+      ? beds.map((b) => b.bedId)
+      : ["NICU-01", "NICU-02", "NICU-03", "NICU-04", "NICU-05", "NICU-06"];
+
+    return allBedsList.filter((bId) => {
+      const isOccupiedByActiveNeonate = (patients || []).some(
+        (p) => p.status === "Admitted" && p.assignedBedId === bId
+      );
+      return !isOccupiedByActiveNeonate;
+    });
+  }, [beds, patients]);
 
   // Available devices (strictly only active online unassigned devices ready for assignment)
   const availableDevices = useMemo(() => {
@@ -335,17 +343,17 @@ const char* DEVICE_ID     = "ESP32-NICU-01";     // Set to your ESP32 device ID
           <button
             onClick={() => {
               if (availableBeds.length === 0) {
-                alert("All 6 NICU Beds are currently occupied. Please discharge a patient to release a bed slot.");
+                alert("All incubator bed slots are currently occupied. Please discharge a recovered patient or add a new bed slot in Settings → Bed Management.");
                 return;
               }
               setAdmitForm((prev) => ({
                 ...prev,
-                assignedBedId: availableBeds[0] || "NICU-01",
+                assignedBedId: availableBeds[0] || "",
                 deviceId: availableDevices[0]?.deviceId || "",
               }));
               setIsAdmitModalOpen(true);
             }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm text-white bg-blue-600 hover:bg-blue-700 active:scale-95"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all shadow-sm text-white bg-blue-600 hover:bg-blue-700 active:scale-95 cursor-pointer"
           >
             <Plus size={16} />
             <span>Admit Neonate</span>

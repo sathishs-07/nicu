@@ -18,9 +18,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const MONGO_URI =
-  process.env.MONGO_URI ||
-  "mongodb+srv://sathish07002_db_user:DmP4CsTEfO4vCZtG@cluster0.nk3wz0y.mongodb.net/nicu?retryWrites=true&w=majority";
+const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/nicu";
 
 // Middleware
 app.use(cors());
@@ -41,22 +39,50 @@ try {
   mqttClient.on("connect", () => {
     mqttStatus = "connected";
     console.log(`[HiveMQ MQTT] Connected successfully to ${MQTT_BROKER}!`);
-    mqttClient.subscribe(["nicu/telemetry/#", "nicu/telemetry", "nicu/devices/+/telemetry"], (err) => {
-      if (!err) {
-        console.log("[HiveMQ MQTT] Subscribed to telemetry topics (nicu/telemetry/#)");
+    mqttClient.subscribe(
+      [
+        "nicu/telemetry/#",
+        "nicu/telemetry",
+        "nicu/devices/+/telemetry",
+        "nicu/+/telemetry",
+        "esp32/telemetry",
+        "esp32/telemetry/#",
+        "esp32/+/telemetry",
+      ],
+      (err) => {
+        if (!err) {
+          console.log("[HiveMQ MQTT] Subscribed to telemetry topics (nicu/telemetry/#, esp32/telemetry/#)");
+        }
       }
-    });
+    );
   });
 
   mqttClient.on("message", async (topic, message) => {
     try {
-      const payload = JSON.parse(message.toString());
+      let payload = {};
+      const rawStr = message.toString().trim();
+      try {
+        payload = JSON.parse(rawStr);
+      } catch {
+        // Fallback for comma-separated vitals: deviceId,hr,spo2,temp
+        const parts = rawStr.split(",");
+        if (parts.length >= 4) {
+          payload = {
+            deviceId: parts[0].trim(),
+            hr: parseFloat(parts[1]),
+            spo2: parseFloat(parts[2]),
+            temp: parseFloat(parts[3]),
+          };
+        }
+      }
+
       const parts = topic.split("/");
-      if (!payload.deviceId && parts.length >= 3) {
-        payload.deviceId = parts[2];
+      if (!payload.deviceId) {
+        if (parts[1] === "devices" && parts[2]) payload.deviceId = parts[2];
+        else if (parts.length >= 3) payload.deviceId = parts[2];
       }
       await processTelemetryIngestion(payload);
-      console.log(`[HiveMQ MQTT] Ingested live vitals from ${payload.deviceId || payload.bedId}`);
+      console.log(`[HiveMQ MQTT] Ingested live vitals from ${payload.deviceId || payload.bedId || "device"}`);
     } catch (err) {
       console.error("[HiveMQ MQTT] Message handling error:", err.message);
     }
@@ -197,13 +223,13 @@ app.put("/api/beds/:id", async (req, res) => {
 app.post("/api/beds", async (req, res) => {
   try {
     const { bedId, babyName, motherName, unitType, assignedDoctorId, assignedDoctorName, deviceId } = req.body;
-    if (!bedId || !babyName) {
-      return res.status(400).json({ error: "bedId and babyName are required" });
+    if (!bedId) {
+      return res.status(400).json({ error: "bedId is required" });
     }
 
     const existing = await Bed.findOne({ bedId });
     if (existing) {
-      return res.status(400).json({ error: `Bed slot ${bedId} is already occupied.` });
+      return res.status(400).json({ error: `Bed slot ${bedId} already exists.` });
     }
 
     const count = await Bed.countDocuments();
@@ -245,6 +271,82 @@ app.post("/api/beds", async (req, res) => {
 
     res.status(201).json(newBed);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Sanitization & Infection Control Endpoint (NEVER discharges patients)
+app.post("/api/beds/:id/sanitize", async (req, res) => {
+  try {
+    const bedId = req.params.id;
+    const bed = await Bed.findOne({ bedId });
+    if (!bed) {
+      return res.status(404).json({ error: `Bed slot ${bedId} not found.` });
+    }
+
+    const { actor = "Clinical Staff", role = "Nurse", notes = "" } = req.body || {};
+    const timeFormatted = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+
+    // Check if bed is currently occupied by an admitted patient
+    const isOccupied = Boolean(bed.babyName && bed.babyName.trim().length > 0 && bed.status !== "Standby");
+
+    if (isOccupied) {
+      // OCCUPIED STATION: Routine Bedside Surface Sanitization & Filter Check
+      // Inpatient remains safely admitted and continuously monitored!
+      bed.lastUpdate = `Surface Disinfected & Filter Verified (${timeFormatted})`;
+      await bed.save();
+
+      await AuditLog.create({
+        id: `LOG-${Date.now().toString().slice(-4)}`,
+        actor,
+        role,
+        action: `Completed routine bedside sanitization & incubator bacterial filter inspection for Bed ${bedId} (${bed.babyName}). Inpatient vital monitoring active uninterrupted.${notes ? ` Notes: ${notes}` : ""}`,
+        timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+      });
+
+      return res.json({
+        success: true,
+        mode: "routine_sanitization",
+        message: `Station ${bedId} surface disinfected and filter checked. Patient ${bed.babyName} remains safely monitored.`,
+        bed,
+      });
+    } else {
+      // STANDBY / VACATED STATION: Terminal UV-C Sterilization & Admission Certification
+      bed.patientId = "";
+      bed.babyName = "";
+      bed.motherName = "";
+      bed.gender = "";
+      bed.gestationalAge = "";
+      bed.birthWeight = "";
+      bed.bloodGroup = "";
+      bed.diagnosis = "";
+      bed.status = "Standby";
+      bed.connectionState = "DISCONNECTED";
+      bed.hr = null;
+      bed.spo2 = null;
+      bed.temperature = null;
+      bed.activeAlerts = [];
+      bed.lastHeartbeatMs = 0;
+      bed.lastUpdate = `Sterilized & Ready for Admission (${timeFormatted})`;
+      await bed.save();
+
+      await AuditLog.create({
+        id: `LOG-${Date.now().toString().slice(-4)}`,
+        actor,
+        role,
+        action: `Completed terminal UV-C sterilization protocol (254nm germicidal cycle) for Bed ${bedId}. Station certified sterile & ready for admission.${notes ? ` Notes: ${notes}` : ""}`,
+        timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+      });
+
+      return res.json({
+        success: true,
+        mode: "terminal_sterilization",
+        message: `Station ${bedId} certified sterile and ready for incoming neonate admission.`,
+        bed,
+      });
+    }
+  } catch (err) {
+    console.error("Sanitize bed error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -453,16 +555,16 @@ app.post("/api/patients", async (req, res) => {
       deviceId: deviceId || null,
       clinicalNotes: admissionNotes
         ? [
-            {
-              id: `NOTE-${Date.now()}`,
-              text: admissionNotes,
-              author: actor,
-              role: "Doctor",
-              category: "Admission Note",
-              timestamp: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
-              date: new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
-            },
-          ]
+          {
+            id: `NOTE-${Date.now()}`,
+            text: admissionNotes,
+            author: actor,
+            role: "Doctor",
+            category: "Admission Note",
+            timestamp: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
+            date: new Date().toLocaleDateString("en-IN", { day: "numeric", month: "short" }),
+          },
+        ]
         : [],
     });
 
@@ -579,7 +681,10 @@ app.post("/api/patients/:id/discharge", async (req, res) => {
       actor = "Doctor",
     } = req.body;
 
-    const patient = await Patient.findOne({ patientId: req.params.id });
+    let patient = await Patient.findOne({ patientId: req.params.id });
+    if (!patient && mongoose.Types.ObjectId.isValid(req.params.id)) {
+      patient = await Patient.findById(req.params.id);
+    }
     if (!patient) return res.status(404).json({ error: "Patient not found" });
 
     const previousBedId = patient.assignedBedId;
@@ -596,32 +701,35 @@ app.post("/api/patients/:id/discharge", async (req, res) => {
     await patient.save();
 
     // Free up previous Bed slot (make ready for next admission)
-    if (previousBedId) {
-      await Bed.updateOne(
-        { bedId: previousBedId },
-        {
-          $set: {
-            patientId: null,
-            babyName: "",
-            motherName: "",
-            gender: "",
-            gestationalAge: "",
-            birthWeight: "",
-            diagnosis: "",
-            status: "Standby",
-            connectionState: "DISCONNECTED",
-            deviceId: null,
-            deviceMac: "",
-            hr: null,
-            spo2: null,
-            temperature: null,
-            activeAlerts: [],
-            lastHeartbeatMs: 0,
-            lastUpdate: "Discharged - Bed Available",
-          },
-        }
-      );
-    }
+    await Bed.updateMany(
+      {
+        $or: [
+          ...(previousBedId ? [{ bedId: previousBedId }] : []),
+          { patientId: patient.patientId },
+        ],
+      },
+      {
+        $set: {
+          patientId: "",
+          babyName: "",
+          motherName: "",
+          gender: "",
+          gestationalAge: "",
+          birthWeight: "",
+          diagnosis: "",
+          status: "Standby",
+          connectionState: "DISCONNECTED",
+          deviceId: null,
+          deviceMac: "",
+          hr: null,
+          spo2: null,
+          temperature: null,
+          activeAlerts: [],
+          lastHeartbeatMs: 0,
+          lastUpdate: "Discharged — Bed Available for Admission",
+        },
+      }
+    );
 
     // Unassign any ESP32 device bound to this patient or this bed
     await Device.updateMany(
@@ -1071,7 +1179,7 @@ app.get("/api/devices", async (req, res) => {
       const lastSeenMs = devObj.lastSeen ? new Date(devObj.lastSeen).getTime() : 0;
       // Freshness: online if telemetry received within 20 seconds
       const isOnline = lastSeenMs > 0 && now - lastSeenMs <= 20000;
-      
+
       const isAssigned = Boolean(devObj.assignedBedId);
 
       let status = "OFFLINE";
@@ -1283,16 +1391,22 @@ app.delete("/api/devices/:id", async (req, res) => {
 
 // ─── Unified Telemetry Ingestion Engine (REST + HiveMQ MQTT) ─
 async function processTelemetryIngestion(payload) {
-  const {
-    deviceId,
-    bedId,
-    heartRate,
-    spo2,
-    temperature,
-    batteryPercent,
-    rssi,
-    signalQuality,
-  } = payload;
+  const deviceId = payload.deviceId || payload.device_id || payload.nodeId || payload.id;
+  const bedId = payload.bedId || payload.bed_id || payload.stationId;
+
+  // Flexible vital parsing (supports hr, heartRate, pulse, spo2, spO2, temp, temperature, etc.)
+  const rawHr = payload.heartRate !== undefined ? payload.heartRate : (payload.hr !== undefined ? payload.hr : payload.pulse);
+  const rawSpo2 = payload.spo2 !== undefined ? payload.spo2 : (payload.spO2 !== undefined ? payload.spO2 : payload.oxygen);
+  const rawTemp = payload.temperature !== undefined ? payload.temperature : (payload.temp !== undefined ? payload.temp : (payload.temperatureC !== undefined ? payload.temperatureC : payload.tempC));
+  const rawBatt = payload.batteryPercent !== undefined ? payload.batteryPercent : (payload.battery !== undefined ? payload.battery : payload.batt);
+  const rawRssi = payload.rssi !== undefined ? payload.rssi : (payload.signal !== undefined ? payload.signal : -58);
+
+  const heartRate = rawHr !== undefined && rawHr !== null ? Math.round(Number(rawHr)) : null;
+  const spo2 = rawSpo2 !== undefined && rawSpo2 !== null ? Math.round(Number(rawSpo2)) : null;
+  const temperature = rawTemp !== undefined && rawTemp !== null ? Number(Number(rawTemp).toFixed(1)) : null;
+  const batteryPercent = rawBatt !== undefined && rawBatt !== null ? Math.round(Number(rawBatt)) : 100;
+  const rssi = Math.round(Number(rawRssi));
+  const signalQuality = payload.signalQuality || (rssi > -65 ? "Excellent" : rssi > -75 ? "Good" : "Fair");
 
   if (!deviceId && !bedId) {
     return { success: false, error: "deviceId or bedId is required" };
@@ -1411,28 +1525,29 @@ async function processTelemetryIngestion(payload) {
   const newReading = new Reading({
     deviceId: deviceId || bed.deviceId,
     bedId: bed.bedId,
-    patientId: bed.patientId,
-    heartRate: heartRate || bed.hr,
-    spo2: spo2 || bed.spo2,
-    temperature: temperature || bed.temperature,
-    batteryPercent: batteryPercent !== undefined ? batteryPercent : bed.batteryPercent,
-    rssi: rssi !== undefined ? rssi : bed.rssi,
-    signalQuality: signalQuality || bed.signalQuality,
+    patientId: bed.patientId || "UNASSIGNED",
+    heartRate: heartRate !== null ? heartRate : (bed.hr || 0),
+    spo2: spo2 !== null ? spo2 : (bed.spo2 || 0),
+    temperature: temperature !== null ? temperature : (bed.temperature || 0),
+    batteryPercent: batteryPercent !== undefined ? batteryPercent : (bed.batteryPercent || 100),
+    rssi: rssi !== undefined ? rssi : (bed.rssi || -58),
+    signalQuality: signalQuality || bed.signalQuality || "Good",
   });
   await newReading.save();
 
   // 6. Prepare update object for Bed (real live data)
+  const isAdmittedBaby = Boolean(bed.babyName && bed.babyName.trim().length > 0);
   const updatePayload = {
-    hr: heartRate !== undefined ? heartRate : bed.hr,
-    spo2: spo2 !== undefined ? spo2 : bed.spo2,
-    temperature: temperature !== undefined ? temperature : bed.temperature,
+    hr: heartRate !== null ? heartRate : bed.hr,
+    spo2: spo2 !== null ? spo2 : bed.spo2,
+    temperature: temperature !== null ? temperature : bed.temperature,
     batteryPercent: batteryPercent !== undefined ? batteryPercent : bed.batteryPercent,
     rssi: rssi !== undefined ? rssi : bed.rssi,
     signalQuality: signalQuality || bed.signalQuality,
     lastUpdate: timeStr,
     lastHeartbeatMs: Date.now(),
     connectionState: "CONNECTED",
-    status: isAbnormal ? "Warning" : "Monitoring",
+    status: isAbnormal && isAdmittedBaby ? "Warning" : (isAdmittedBaby ? "Monitoring" : "Standby"),
   };
 
   // If an alert condition fired, create new alert if not already active
@@ -1502,6 +1617,44 @@ app.post("/api/telemetry", async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error("Telemetry ingestion error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Device-specific HTTP telemetry endpoint e.g. POST /api/devices/ESP32-NICU-01/telemetry
+app.post("/api/devices/:id/telemetry", async (req, res) => {
+  try {
+    const payload = { ...req.body, deviceId: req.params.id };
+    const result = await processTelemetryIngestion(payload);
+    if (!result.success && result.error) {
+      return res.status(400).json(result);
+    }
+    res.json(result);
+  } catch (err) {
+    console.error("Device telemetry error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Device configuration & auto-mapping query endpoint
+app.get("/api/devices/:id/config", async (req, res) => {
+  try {
+    const device = await Device.findOne({ deviceId: req.params.id });
+    if (!device) {
+      return res.json({
+        deviceId: req.params.id,
+        status: "UNASSIGNED",
+        assignedBedId: null,
+        assignedPatientId: null,
+      });
+    }
+    res.json({
+      deviceId: device.deviceId,
+      status: device.status,
+      assignedBedId: device.assignedBedId,
+      assignedPatientId: device.assignedPatientId,
+    });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

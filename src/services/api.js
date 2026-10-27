@@ -144,6 +144,13 @@ export const api = {
     });
   },
 
+  sanitizeBed: async (bedId, details = {}) => {
+    return safeFetch(`/beds/${bedId}/sanitize`, {
+      method: "POST",
+      body: JSON.stringify(details),
+    });
+  },
+
   addClinicalNote: async (bedId, noteData) => {
     return safeFetch(`/beds/${bedId}/notes`, {
       method: "POST",

@@ -131,8 +131,16 @@ export default function PatientDetails() {
 
   // Alerts relevant to this patient
   const patientAlerts = useMemo(() => {
+    if (!alertLog || !bed) return [];
     return alertLog.filter((a) => a.bedId === bed.bedId || a.patientId === bed.patientId);
   }, [alertLog, bed]);
+  const bedAlerts = patientAlerts;
+
+  // Historical readings buffer for telemetry report
+  const historicalReadings = useMemo(() => {
+    if (rawPoints && rawPoints.length > 0) return rawPoints;
+    return chartData || [];
+  }, [rawPoints, chartData]);
 
   // Export CSV handler
   const handleExportCSV = () => {
@@ -155,6 +163,28 @@ export default function PatientDetails() {
     link.click();
     document.body.removeChild(link);
   };
+
+  if (!bed) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] text-center p-6 space-y-4">
+        <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-slate-800 text-blue-600 dark:text-blue-400 flex items-center justify-center animate-spin">
+          <RefreshCw size={24} />
+        </div>
+        <h2 className="text-base font-bold text-slate-800 dark:text-slate-200">
+          Loading Patient Telemetry Station...
+        </h2>
+        <p className="text-xs text-slate-500 max-w-sm">
+          Awaiting live bed data from MongoDB and HiveMQ telemetry stream.
+        </p>
+        <button
+          onClick={() => navigate("/")}
+          className="px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors cursor-pointer"
+        >
+          Return to Ward Overview
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">

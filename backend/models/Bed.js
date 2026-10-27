@@ -3,9 +3,9 @@ import mongoose from "mongoose";
 const BedSchema = new mongoose.Schema(
   {
     bedId: { type: String, required: true, unique: true }, // e.g. "NICU-01"
-    patientId: { type: String, required: true }, // e.g. "DEMO-001"
-    babyName: { type: String, required: true },
-    motherName: { type: String, required: true },
+    patientId: { type: String, default: "" }, // e.g. "DEMO-001"
+    babyName: { type: String, default: "" },
+    motherName: { type: String, default: "" },
     gender: { type: String, default: "Female" },
     admissionDate: { type: String, default: "20 Oct 2026" },
     gestationalAge: { type: String, default: "32w 4d" },

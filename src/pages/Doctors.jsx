@@ -669,16 +669,9 @@ export default function Doctors() {
                   onChange={(e) => setAssignBedId(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white font-mono font-semibold"
                 >
-                  {(beds && beds.length > 0 ? beds : [
-                    { bedId: "NICU-01", babyName: "Baby of Meera", patientId: "PAT-01" },
-                    { bedId: "NICU-02", babyName: "Baby of Anjali", patientId: "PAT-02" },
-                    { bedId: "NICU-03", babyName: "Baby of Priya", patientId: "PAT-03" },
-                    { bedId: "NICU-04", babyName: "Baby of Sunita", patientId: "PAT-04" },
-                    { bedId: "NICU-05", babyName: "Baby of Lakshmi", patientId: "PAT-05" },
-                    { bedId: "NICU-06", babyName: "Baby of Deepa", patientId: "PAT-06" },
-                  ]).map((b) => (
+                  {(beds || []).map((b) => (
                     <option key={b.bedId} value={b.bedId}>
-                      {b.bedId} — {b.babyName || "Station"} ({b.patientId || "Active"})
+                      {b.bedId} — {b.babyName ? b.babyName : "Standby / Available"} {b.patientId ? `(${b.patientId})` : ""}
                     </option>
                   ))}
                 </select>
