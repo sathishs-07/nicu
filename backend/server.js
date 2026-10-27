@@ -311,7 +311,7 @@ app.post("/api/beds/:id/sanitize", async (req, res) => {
         bed,
       });
     } else {
-      // STANDBY / VACATED STATION: Terminal UV-C Sterilization & Admission Certification
+      // STANDBY / VACATED STATION: Terminal Clinical Sanitization & Admission Certification
       bed.patientId = "";
       bed.babyName = "";
       bed.motherName = "";
@@ -327,21 +327,21 @@ app.post("/api/beds/:id/sanitize", async (req, res) => {
       bed.temperature = null;
       bed.activeAlerts = [];
       bed.lastHeartbeatMs = 0;
-      bed.lastUpdate = `Sterilized & Ready for Admission (${timeFormatted})`;
+      bed.lastUpdate = `Sanitized & Ready for Admission (${timeFormatted})`;
       await bed.save();
 
       await AuditLog.create({
         id: `LOG-${Date.now().toString().slice(-4)}`,
         actor,
         role,
-        action: `Completed terminal UV-C sterilization protocol (254nm germicidal cycle) for Bed ${bedId}. Station certified sterile & ready for admission.${notes ? ` Notes: ${notes}` : ""}`,
+        action: `Completed terminal clinical sanitization and disinfection protocol for Bed ${bedId}. Station certified ready for admission.${notes ? ` Notes: ${notes}` : ""}`,
         timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
       });
 
       return res.json({
         success: true,
-        mode: "terminal_sterilization",
-        message: `Station ${bedId} certified sterile and ready for incoming neonate admission.`,
+        mode: "terminal_sanitization",
+        message: `Station ${bedId} certified sanitized and ready for incoming neonate admission.`,
         bed,
       });
     }
@@ -1313,35 +1313,58 @@ function getDeviceQuery(id) {
     : { deviceId: id };
 }
 
-// Assign / Unassign device to a Bed
+// Assign / Unassign device to a Patient (Device binds directly to Patient)
 app.put("/api/devices/:id/assign", async (req, res) => {
   try {
-    const { bedId } = req.body; // Can be a bedId or null/empty string to unassign
+    const { patientId, bedId } = req.body;
     const device = await Device.findOne(getDeviceQuery(req.params.id));
     if (!device) return res.status(404).json({ error: "Device not found" });
 
-    // If currently assigned to a bed, clear that bed's deviceId
-    if (device.assignedBedId) {
-      await Bed.updateOne({ bedId: device.assignedBedId }, { $set: { deviceId: null } });
+    // Determine target patientId (support direct patientId or lookup from bedId)
+    let targetPatientId = patientId;
+    if (!targetPatientId && bedId) {
+      const b = await Bed.findOne({ bedId });
+      if (b && b.patientId) targetPatientId = b.patientId;
     }
 
-    if (bedId) {
-      const targetBed = await Bed.findOne({ bedId });
-      if (!targetBed) return res.status(404).json({ error: `Bed ${bedId} not found` });
+    // Clear previous patient binding if any
+    if (device.assignedPatientId) {
+      const prevPatient = await Patient.findOne({ patientId: device.assignedPatientId });
+      if (prevPatient && prevPatient.patientId !== targetPatientId) {
+        prevPatient.deviceId = null;
+        await prevPatient.save();
+        if (prevPatient.assignedBedId) {
+          await Bed.updateOne({ bedId: prevPatient.assignedBedId }, { $set: { deviceId: null } });
+        }
+      }
+    }
 
-      // Unassign any existing device on target bed
+    if (targetPatientId) {
+      const targetPatient = await Patient.findOne({ patientId: targetPatientId });
+      if (!targetPatient) return res.status(404).json({ error: `Patient ${targetPatientId} not found` });
+
+      // Unassign any other device currently bound to this patient
       await Device.updateMany(
-        { assignedBedId: bedId, deviceId: { $ne: device.deviceId } },
-        { $set: { assignedBedId: null, assignedPatientId: null, status: "UNASSIGNED" } }
+        { assignedPatientId: targetPatientId, deviceId: { $ne: device.deviceId } },
+        { $set: { assignedPatientId: null, assignedBedId: null, status: "UNASSIGNED" } }
       );
 
-      // Link target bed to this device
-      targetBed.deviceId = device.deviceId;
-      targetBed.deviceMac = device.macAddress;
-      await targetBed.save();
+      // Bind device to patient
+      targetPatient.deviceId = device.deviceId;
+      await targetPatient.save();
 
-      device.assignedBedId = bedId;
-      device.assignedPatientId = targetBed.patientId;
+      // If patient is placed in a bed, link that bed's deviceId
+      if (targetPatient.assignedBedId) {
+        await Bed.updateOne(
+          { bedId: targetPatient.assignedBedId },
+          { $set: { deviceId: device.deviceId, deviceMac: device.macAddress } }
+        );
+        device.assignedBedId = targetPatient.assignedBedId;
+      } else {
+        device.assignedBedId = null;
+      }
+
+      device.assignedPatientId = targetPatientId;
       device.status = "ONLINE";
       await device.save();
 
@@ -1349,13 +1372,23 @@ app.put("/api/devices/:id/assign", async (req, res) => {
         id: `LOG-${Date.now().toString().slice(-4)}`,
         actor: req.body.actor || "Staff",
         role: "Clinical Engineer",
-        action: `Assigned ESP32 ${device.deviceId} to Bed ${bedId} (${targetBed.babyName})`,
+        action: `Assigned ESP32 ${device.deviceId} to Patient ${targetPatient.babyName} (${targetPatientId})`,
         timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
       });
     } else {
-      // Unassigning
-      device.assignedBedId = null;
+      // Unassigning from patient
+      if (device.assignedPatientId) {
+        await Patient.updateOne(
+          { patientId: device.assignedPatientId },
+          { $set: { deviceId: null } }
+        );
+      }
+      if (device.assignedBedId) {
+        await Bed.updateOne({ bedId: device.assignedBedId }, { $set: { deviceId: null } });
+      }
+
       device.assignedPatientId = null;
+      device.assignedBedId = null;
       device.status = "UNASSIGNED";
       await device.save();
 
@@ -1363,7 +1396,7 @@ app.put("/api/devices/:id/assign", async (req, res) => {
         id: `LOG-${Date.now().toString().slice(-4)}`,
         actor: req.body.actor || "Staff",
         role: "Clinical Engineer",
-        action: `Unassigned ESP32 ${device.deviceId}`,
+        action: `Unassigned ESP32 ${device.deviceId} from Patient`,
         timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
       });
     }
@@ -1480,17 +1513,26 @@ async function processTelemetryIngestion(payload) {
     }
   }
 
-  // 2. Resolve Assigned Bed (Database mapping takes precedence over hardcoded firmware)
-  const targetBedId = device?.assignedBedId || bedId;
-  let bed = null;
-  if (targetBedId) {
-    bed = await Bed.findOne({ bedId: targetBedId });
+  // 2. Resolve Assigned Patient (Device binds directly to Patient)
+  let patient = null;
+  if (device?.assignedPatientId) {
+    patient = await Patient.findOne({ patientId: device.assignedPatientId });
   } else if (deviceId) {
-    bed = await Bed.findOne({ deviceId });
+    patient = await Patient.findOne({ deviceId });
   }
 
-  // If device is not yet assigned to any bed, save reading as unassigned
-  if (!bed) {
+  // If patient is in an admitted bed, resolve that bed
+  let bed = null;
+  if (patient && patient.assignedBedId) {
+    bed = await Bed.findOne({ bedId: patient.assignedBedId });
+  } else if (bedId) {
+    bed = await Bed.findOne({ bedId });
+  } else if (device?.assignedBedId) {
+    bed = await Bed.findOne({ bedId: device.assignedBedId });
+  }
+
+  // If device is not yet assigned to any patient or bed, save reading as unassigned
+  if (!patient && !bed) {
     const newReading = new Reading({
       deviceId: deviceId || "UNKNOWN",
       bedId: "UNASSIGNED",
@@ -1506,7 +1548,7 @@ async function processTelemetryIngestion(payload) {
 
     return {
       success: true,
-      message: "Telemetry received from unassigned ESP32 product",
+      message: "Telemetry received from unassigned ESP32 product (no patient assigned)",
       deviceId,
       autoDiscovered: device?.autoDiscovered || false,
       bedAssigned: false,
@@ -1547,19 +1589,33 @@ async function processTelemetryIngestion(payload) {
     priority = "Warning";
   }
 
+  const targetBedId = bed ? bed.bedId : (patient?.assignedBedId || "UNASSIGNED");
+  const targetPatientId = patient ? patient.patientId : (bed?.patientId || "UNASSIGNED");
+
   // 5. Save Reading record for historical waveforms
   const newReading = new Reading({
-    deviceId: deviceId || bed.deviceId,
-    bedId: bed.bedId,
-    patientId: bed.patientId || "UNASSIGNED",
-    heartRate: heartRate !== null ? heartRate : (bed.hr || 0),
-    spo2: spo2 !== null ? spo2 : (bed.spo2 || 0),
-    temperature: temperature !== null ? temperature : (bed.temperature || 0),
-    batteryPercent: batteryPercent !== undefined ? batteryPercent : (bed.batteryPercent || 100),
-    rssi: rssi !== undefined ? rssi : (bed.rssi || -58),
-    signalQuality: signalQuality || bed.signalQuality || "Good",
+    deviceId: deviceId || (bed ? bed.deviceId : "UNKNOWN"),
+    bedId: targetBedId,
+    patientId: targetPatientId,
+    heartRate: heartRate !== null ? heartRate : (bed?.hr || 0),
+    spo2: spo2 !== null ? spo2 : (bed?.spo2 || 0),
+    temperature: temperature !== null ? temperature : (bed?.temperature || 0),
+    batteryPercent: batteryPercent !== undefined ? batteryPercent : (bed?.batteryPercent || 100),
+    rssi: rssi !== undefined ? rssi : (bed?.rssi || -58),
+    signalQuality: signalQuality || bed?.signalQuality || "Good",
   });
   await newReading.save();
+
+  if (!bed) {
+    return {
+      success: true,
+      message: "Telemetry ingested for patient without an active bed",
+      patientId: targetPatientId,
+      deviceId: deviceId || device?.deviceId,
+      vitals: { hr: heartRate, spo2, temp: temperature },
+      bedAssigned: false,
+    };
+  }
 
   // 6. Prepare update object for Bed (real live data)
   const isAdmittedBaby = Boolean(bed.babyName && bed.babyName.trim().length > 0);

@@ -750,19 +750,24 @@ export function AppProvider({ children }) {
     [currentUser, fetchDevices]
   );
 
-  const assignDeviceToBed = useCallback(
-    async (deviceId, bedId) => {
+  const assignDeviceToPatient = useCallback(
+    async (deviceId, patientId) => {
       if (!can.assignDevice(currentUser?.role)) {
         throw new Error("Insufficient permissions to assign devices.");
       }
-      const res = await api.assignDevice(deviceId, bedId);
+      const res = await api.assignDevice(deviceId, patientId);
       await fetchDevices();
-      const updatedBeds = await api.getBeds();
+      const [updatedBeds, updatedPatients] = await Promise.all([
+        api.getBeds(),
+        api.getPatients(),
+      ]);
       if (updatedBeds && Array.isArray(updatedBeds)) setBeds(updatedBeds);
+      if (updatedPatients && Array.isArray(updatedPatients)) setPatients(updatedPatients);
       return res;
     },
     [currentUser, fetchDevices]
   );
+  const assignDeviceToBed = assignDeviceToPatient;
 
   const deleteDevice = useCallback(
     async (deviceId) => {
@@ -854,7 +859,7 @@ export function AppProvider({ children }) {
           )
         );
       } else {
-        // STANDBY STATION: Terminal UV-C Sterilization & Admission Certification
+        // STANDBY STATION: Terminal Clinical Sanitization & Admission Certification
         setBeds((prev) =>
           prev.map((b) =>
             b.bedId === bedId
@@ -910,7 +915,7 @@ export function AppProvider({ children }) {
           role: currentUser?.role || "Nurse",
           action: isOccupied
             ? `Completed routine surface sanitization & HEPA filter inspection for Bed ${bedId} (${targetBed?.babyName}). Inpatient vital monitoring active uninterrupted.`
-            : `Completed terminal decontamination protocol (UV-C & surface sterilization) for Bed ${bedId}. Station released to Standby.`,
+            : `Completed terminal clinical sanitization and disinfection protocol for Bed ${bedId}. Station released to Standby.`,
           timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
           ip: "System",
         },
@@ -1124,6 +1129,7 @@ export function AppProvider({ children }) {
         fetchDevices,
         addDevice,
         assignDeviceToBed,
+        assignDeviceToPatient,
         deleteDevice,
         // Alerts
         alertLog,

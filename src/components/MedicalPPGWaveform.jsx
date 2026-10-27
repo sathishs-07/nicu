@@ -20,7 +20,6 @@ export default function MedicalPPGWaveform({
 }) {
   const canvasRef = useRef(null);
   const [isFrozen, setIsFrozen] = useState(false);
-  const [alarmMuted, setAlarmMuted] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -196,18 +195,6 @@ export default function MedicalPPGWaveform({
               }`}
             >
               {isFrozen ? "FROZEN" : "Freeze"}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setAlarmMuted(!alarmMuted)}
-              className={`px-3 py-0.5 rounded font-bold transition-colors border ${
-                alarmMuted
-                  ? "bg-rose-900/60 text-rose-300 border-rose-500/50"
-                  : "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-600"
-              }`}
-            >
-              {alarmMuted ? "Alm SILENCED" : "Alm OFF"}
             </button>
 
             <span className="px-2.5 py-0.5 rounded bg-slate-800/80 text-slate-400 border border-slate-700">

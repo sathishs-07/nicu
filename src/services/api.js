@@ -12,13 +12,9 @@ export function getApiBaseUrl() {
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL.replace(/\/$/, "");
   }
-  if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
-    // When running on Vercel cloud deployment:
-    // If user configured a cloud backend (e.g. Render/Railway), use it;
-    // otherwise fallback gracefully to local storage persistence
-    const cloudUrl = localStorage.getItem("nicu_cloud_backend_url");
-    if (cloudUrl) return cloudUrl.replace(/\/$/, "");
-    return "";
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    // Default to production cloud backend on Render
+    return "https://ncms-g36g.onrender.com/api";
   }
   return "http://localhost:5000/api";
 }
@@ -249,10 +245,10 @@ export const api = {
     });
   },
 
-  assignDevice: async (deviceId, bedId) => {
+  assignDevice: async (deviceId, patientId) => {
     return safeFetch(`/devices/${deviceId}/assign`, {
       method: "PUT",
-      body: JSON.stringify({ bedId }),
+      body: JSON.stringify({ patientId }),
     });
   },
 

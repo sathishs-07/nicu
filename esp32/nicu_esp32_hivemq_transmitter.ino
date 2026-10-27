@@ -36,12 +36,8 @@
 // ==============================================================================
 const char* WIFI_SSID     = "YOUR_WIFI_NAME";     // <-- Enter Wi-Fi or Mobile Hotspot name
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"; // <-- Enter Wi-Fi password
-const char* DEVICE_ID     = "ESP32-NICU-01";      // <-- Device ID (Auto-maps to NICU-01)
-const char* TARGET_BED_ID = "NICU-01";            // <-- Bed Bay ID
+const char* DEVICE_ID     = "ESP32-NICU-01";      // <-- Device ID (Assign to Patient in Settings)
 
-// 🟢 STEP 2: MULTI-BED SIMULATION (Optional)
-// Set to false to stream only for this physical ESP32 device
-#define SIMULATE_ALL_BEDS false
 
 // ==============================================================================
 // ⚪ SENSOR & PROTOCOL CONFIGURATION
@@ -194,17 +190,16 @@ void setup() {
 }
 
 // ─── Telemetry Sender Helper ─────────────────────────────────
-void sendDeviceTelemetry(const char* devId, const char* bId, int hrVal, int spo2Val, float tempVal) {
+void sendDeviceTelemetry(const char* devId, int hrVal, int spo2Val, float tempVal) {
   int battery = 94;
   long rssi = WiFi.RSSI();
   String signal = (rssi > -65) ? "Excellent" : (rssi > -75) ? "Good" : "Fair";
 
   String topic = "nicu/telemetry/" + String(devId);
 
-  // Formulate standard JSON telemetry payload
+  // Formulate standard JSON telemetry payload (device is bound to patient in settings)
   String payload = "{";
   payload += "\"deviceId\":\"" + String(devId) + "\",";
-  payload += "\"bedId\":\"" + String(bId) + "\",";
   payload += "\"heartRate\":" + String(hrVal) + ",";
   payload += "\"spo2\":" + String(spo2Val) + ",";
   payload += "\"temperature\":" + String(tempVal, 1) + ",";
@@ -291,18 +286,7 @@ void loop() {
   unsigned long now = millis();
   if (now - lastTransmitTime >= TRANSMIT_INTERVAL_MS) {
     lastTransmitTime = now;
-
-#if SIMULATE_ALL_BEDS
-    // 1 physical ESP32 sending data for all 6 NICU stations
-    sendDeviceTelemetry("ESP32-NICU-01", "NICU-01", 142, 98, 36.8);
-    sendDeviceTelemetry("ESP32-NICU-02", "NICU-02", 138, 97, 36.6);
-    sendDeviceTelemetry("ESP32-NICU-03", "NICU-03", 145, 99, 36.9);
-    sendDeviceTelemetry("ESP32-NICU-04", "NICU-04", 136, 98, 36.7);
-    sendDeviceTelemetry("ESP32-NICU-05", "NICU-05", 140, 96, 36.8);
-    sendDeviceTelemetry("ESP32-NICU-06", "NICU-06", 144, 99, 36.7);
-#else
-    sendDeviceTelemetry(DEVICE_ID, TARGET_BED_ID, beatAvg, currentSpo2, currentTemp);
-#endif
+    sendDeviceTelemetry(DEVICE_ID, beatAvg, currentSpo2, currentTemp);
   }
 
   delay(20);

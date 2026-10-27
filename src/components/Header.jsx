@@ -93,71 +93,11 @@ export default function Header() {
   const [isMqttModalOpen, setIsMqttModalOpen] = useState(false);
   const [isSbarOpen, setIsSbarOpen] = useState(false);
   const [sbarCopied, setSbarCopied] = useState(false);
-  const [isAudioMuted, setIsAudioMuted] = useState(false);
-  const [silenceCountdown, setSilenceCountdown] = useState(0);
-
   const [mqttTestBed, setMqttTestBed] = useState("NICU-01");
   const [mqttTestDevice, setMqttTestDevice] = useState("ESP32-NICU-01");
   const [mqttTestStatus, setMqttTestStatus] = useState(null);
 
-  // Soft Clinical Alarm Chime Synthesizer
-  const playClinicalChime = () => {
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc1.type = "sine";
-      osc2.type = "sine";
-      osc1.frequency.setValueAtTime(880, ctx.currentTime);
-      osc2.frequency.setValueAtTime(1318.5, ctx.currentTime);
-
-      gain.gain.setValueAtTime(0.06, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-
-      osc1.connect(gain);
-      osc2.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc1.start();
-      osc2.start();
-      osc1.stop(ctx.currentTime + 0.35);
-      osc2.stop(ctx.currentTime + 0.35);
-    } catch {
-      // AudioContext locked or unsupported
-    }
-  };
-
-  // 120s Clinical Alarm Silence Countdown
-  useEffect(() => {
-    if (silenceCountdown <= 0) return;
-    const interval = setInterval(() => {
-      setSilenceCountdown((prev) => {
-        if (prev <= 1) {
-          setIsAudioMuted(false);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [silenceCountdown]);
-
-  const toggleSilenceAlarms = () => {
-    if (silenceCountdown > 0) {
-      setSilenceCountdown(0);
-      setIsAudioMuted(false);
-    } else {
-      setSilenceCountdown(120);
-      setIsAudioMuted(true);
-    }
-  };
-
   const handlePublishTestMqtt = async () => {
-    setMqttTestStatus("Broadcasting live telemetry to broker.hivemq.com:1883...");
     try {
       const res = await api.testPublishMqtt({
         deviceId: mqttTestDevice,
@@ -280,39 +220,7 @@ export default function Header() {
           <span>HiveMQ: Online</span>
         </button>
 
-        {/* Clinical Alarm Audible Chime & Mute Controller (IEC 60601-1-8 Standard) */}
-        <button
-          onClick={toggleSilenceAlarms}
-          className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer ${
-            isAudioMuted || silenceCountdown > 0
-              ? "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-800"
-              : activeAlertsCount > 0
-              ? "bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-200 border border-rose-300 dark:border-rose-800 animate-pulse"
-              : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700"
-          }`}
-          title={
-            silenceCountdown > 0
-              ? `Alarms silenced for ${silenceCountdown}s. Click to unmute.`
-              : "Click to Silence / Pause audible alarms (120s IEC standard pause)"
-          }
-        >
-          {isAudioMuted || silenceCountdown > 0 ? (
-            <>
-              <VolumeX size={15} className="text-amber-600" />
-              <span className="text-[11px]">
-                {silenceCountdown > 0 ? `${silenceCountdown}s` : "Muted"}
-              </span>
-            </>
-          ) : (
-            <>
-              <Volume2
-                size={15}
-                className={activeAlertsCount > 0 ? "text-rose-600 animate-bounce" : "text-slate-500"}
-              />
-              <span className="hidden sm:inline text-[11px]">Audio</span>
-            </>
-          )}
-        </button>
+
 
         {/* Notification Bell with Active Count */}
         <div className="relative" ref={alertsRef}>
@@ -340,13 +248,6 @@ export default function Header() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={playClinicalChime}
-                    className="text-[11px] text-slate-500 hover:text-blue-600 font-semibold"
-                    title="Test audible medical chime"
-                  >
-                    Test Chime
-                  </button>
                   <Link
                     to="/alerts"
                     onClick={() => setIsAlertsOpen(false)}

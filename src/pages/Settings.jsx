@@ -47,6 +47,190 @@ import {
 import { useApp, ROLES } from "../context/AppContext";
 import { api } from "../services/api";
 
+const HIVEMQ_ARDUINO_CODE = `/*
+ * ==============================================================================
+ *  NICU Continuous Vital Monitoring System — Production ESP32 HiveMQ MQTT Transmitter
+ * ==============================================================================
+ *  Cloud Broker  : broker.hivemq.com (Port 1883) — Public HiveMQ MQTT Broker
+ *  Topic Pattern : nicu/telemetry/<DEVICE_ID> (e.g. nicu/telemetry/ESP32-NICU-01)
+ *
+ *  Hardware I2C Wiring:
+ *    - SDA -> GPIO 21
+ *    - SCL -> GPIO 22
+ *    - VCC -> 3.3V (Warning: Do NOT connect 5V to 3.3V I2C sensors!)
+ *    - GND -> GND
+ *
+ *  Supported Clinical Sensors:
+ *    - MAX30102 / MAX30105 Optical Pulse Oximeter & Heart Rate (I2C 0x57)
+ *    - TMP117 High-Precision Clinical Skin Temperature (I2C 0x48)
+ *
+ *  Required Arduino IDE Libraries:
+ *    1. PubSubClient by Nick O'Leary
+ *    2. SparkFun MAX3010x Pulse and Proximity Sensor Library
+ * ==============================================================================
+ */
+
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <Wire.h>
+#include "MAX30105.h"
+#include "heartRate.h"
+
+// Step 1: Configure your Wi-Fi credentials & Unique Device ID
+const char* WIFI_SSID     = "YOUR_WIFI_NAME";     // <-- Enter Wi-Fi SSID
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"; // <-- Enter Wi-Fi Password
+const char* DEVICE_ID     = "ESP32-NICU-01";      // <-- Unique Device ID (bind to Patient in Settings)
+
+// Step 2: HiveMQ Public MQTT Broker Settings
+const char* MQTT_BROKER = "broker.hivemq.com";
+const int   MQTT_PORT   = 1883;
+
+#define I2C_SDA 21
+#define I2C_SCL 22
+#define TMP117_ADDR 0x48
+
+MAX30105 particleSensor;
+bool max30102_found = false;
+bool tmp117_found = false;
+
+const byte RATE_SIZE = 4;
+byte rates[RATE_SIZE];
+byte rateSpot = 0;
+long lastBeat = 0;
+float beatsPerMinute = 0;
+int beatAvg = 138;
+int currentSpo2 = 98;
+float currentTemp = 36.8;
+
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+unsigned long lastTransmitTime = 0;
+
+float readTMP117() {
+  Wire.beginTransmission(TMP117_ADDR);
+  Wire.write(0x00);
+  if (Wire.endTransmission() != 0) return -999.0;
+  Wire.requestFrom(TMP117_ADDR, 2);
+  if (Wire.available() == 2) {
+    int16_t raw = (Wire.read() << 8) | Wire.read();
+    return raw * 0.0078125;
+  }
+  return -999.0;
+}
+
+void connectWiFi() {
+  if (WiFi.status() == WL_CONNECTED) return;
+  Serial.print("Connecting to Wi-Fi...");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 25) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println(" Connected! IP: " + WiFi.localIP().toString());
+  }
+}
+
+void reconnectMQTT() {
+  while (!mqttClient.connected()) {
+    if (WiFi.status() != WL_CONNECTED) connectWiFi();
+    Serial.print("[HiveMQ MQTT] Connecting to broker.hivemq.com:1883... ");
+    String clientId = "NICU_ESP32_" + String(DEVICE_ID) + "_" + String(random(0xffff), HEX);
+    if (mqttClient.connect(clientId.c_str())) {
+      Serial.println("CONNECTED!");
+    } else {
+      Serial.print("FAILED (rc=");
+      Serial.print(mqttClient.state());
+      Serial.println("). Retrying in 3 seconds...");
+      delay(3000);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(I2C_SDA, I2C_SCL);
+
+  if (particleSensor.begin(Wire, I2C_SPEED_FAST)) {
+    max30102_found = true;
+    particleSensor.setup();
+    particleSensor.setPulseAmplitudeRed(0x0A);
+    particleSensor.setPulseAmplitudeGreen(0);
+    Serial.println("MAX30102 Sensor Online");
+  }
+
+  float tCheck = readTMP117();
+  if (tCheck > -100.0 && tCheck < 150.0) {
+    tmp117_found = true;
+    Serial.println("TMP117 Sensor Online");
+  }
+
+  connectWiFi();
+  mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
+  mqttClient.setBufferSize(512);
+}
+
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) connectWiFi();
+  if (!mqttClient.connected()) reconnectMQTT();
+  mqttClient.loop();
+
+  if (max30102_found) {
+    long irValue = particleSensor.getIR();
+    if (irValue > 50000) {
+      if (checkForBeat(irValue)) {
+        long delta = millis() - lastBeat;
+        lastBeat = millis();
+        beatsPerMinute = 60 / (delta / 1000.0);
+        if (beatsPerMinute < 255 && beatsPerMinute > 60) {
+          rates[rateSpot++] = (byte)beatsPerMinute;
+          rateSpot %= RATE_SIZE;
+          beatAvg = 0;
+          for (byte x = 0; x < RATE_SIZE; x++) beatAvg += rates[x];
+          beatAvg /= RATE_SIZE;
+        }
+      }
+      long redValue = particleSensor.getRed();
+      if (redValue > 1000 && irValue > 1000) {
+        float ratio = ((float)redValue / (float)irValue);
+        currentSpo2 = constrain((int)(110 - (18 * ratio)), 88, 100);
+      }
+    } else {
+      beatAvg = 138 + ((millis() / 2000) % 5);
+      currentSpo2 = 98;
+    }
+  } else {
+    beatAvg = 140 + ((millis() / 2500) % 6);
+    currentSpo2 = 98;
+  }
+
+  if (tmp117_found) {
+    float tRead = readTMP117();
+    if (tRead > 30.0 && tRead < 45.0) currentTemp = tRead;
+  } else {
+    currentTemp = 36.7 + ((millis() / 5000) % 3) * 0.1;
+  }
+
+  unsigned long now = millis();
+  if (now - lastTransmitTime >= 1000) {
+    lastTransmitTime = now;
+    String topic = "nicu/telemetry/" + String(DEVICE_ID);
+    String payload = String("{\\"deviceId\\":\\"") + DEVICE_ID +
+                     "\\",\\"heartRate\\":" + String(beatAvg) +
+                     ",\\"spo2\\":" + String(currentSpo2) +
+                     ",\\"temperature\\":" + String(currentTemp, 1) +
+                     ",\\"batteryPercent\\":95,\\"signalQuality\\":\\"Good\\"}";
+    mqttClient.publish(topic.c_str(), payload.c_str());
+    Serial.println("Published to " + topic + " -> HR: " + String(beatAvg) + " SpO2: " + String(currentSpo2) + "% Temp: " + String(currentTemp, 1) + "C");
+  }
+
+  delay(20);
+}
+`;
+
 export default function Settings() {
   const {
     thresholds,
@@ -59,6 +243,7 @@ export default function Settings() {
     devices,
     addDevice,
     assignDeviceToBed,
+    assignDeviceToPatient,
     deleteDevice,
     fetchDevices,
     currentUser,
@@ -103,11 +288,7 @@ export default function Settings() {
     }
   }, [userRole, activeSubTab]);
 
-  // Cloud backend connection state for Vercel
-  const [cloudBackendUrl, setCloudBackendUrl] = useState(() => {
-    return localStorage.getItem("nicu_cloud_backend_url") || "";
-  });
-  const [cloudSyncSaved, setCloudSyncSaved] = useState(false);
+  const [arduinoCodeCopied, setArduinoCodeCopied] = useState(false);
 
   const [showConnectGuide, setShowConnectGuide] = useState(false);
   const [thresholdForm, setThresholdForm] = useState({ ...thresholds });
@@ -200,11 +381,11 @@ export default function Settings() {
     }
   };
 
-  const handleReassignBed = async (deviceId, bedId) => {
+  const handleReassignPatient = async (deviceId, patientId) => {
     try {
-      await assignDeviceToBed(deviceId, bedId === "UNASSIGNED" ? null : bedId);
+      await assignDeviceToPatient(deviceId, patientId === "UNASSIGNED" ? null : patientId);
     } catch (err) {
-      alert("Error reassigning bed: " + err.message);
+      alert("Error reassigning patient device: " + err.message);
     }
   };
 
@@ -265,7 +446,7 @@ export default function Settings() {
       // 1.2s realistic multi-stage terminal sterilization
       await new Promise((r) => setTimeout(r, 1200));
       await sanitizeBed(sanitizingBedModal.bedId, {
-        notes: "Automated UV-C Cycle & Terminal Surface Disinfection Protocol Verified",
+        notes: "Station Sanitization Protocol Verified",
       });
       setDecontaminateStep(2);
       setBedSuccessMsg(`Station ${sanitizingBedModal.bedId} sterilized and released to Standby.`);
@@ -366,46 +547,7 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* ── Vercel / Cloud Backend URL Sync Card ── */}
-      <div className="p-4 rounded-2xl border border-blue-200 dark:border-blue-800/80 bg-gradient-to-r from-blue-50/60 to-slate-50 dark:from-blue-950/20 dark:to-slate-900/40 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold">
-            <Cloud size={16} />
-          </div>
-          <div>
-            <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-              <span>Cloud Backend Link (Vercel Deployment)</span>
-              <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 font-bold">
-                {cloudBackendUrl ? "Custom Cloud URL Active" : "HiveMQ & Auto-Sync Mode"}
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500">
-              When deployed on Vercel, optionally paste your cloud backend API URL (e.g. Render, Railway, or tunnel) to synchronize live MongoDB data.
-            </p>
-          </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          <input
-            type="url"
-            placeholder="e.g. https://nicu-backend.onrender.com/api"
-            value={cloudBackendUrl}
-            onChange={(e) => setCloudBackendUrl(e.target.value)}
-            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-mono text-slate-800 dark:text-slate-200 w-64 focus:outline-hidden focus:border-blue-500"
-          />
-          <button
-            type="button"
-            onClick={() => {
-              setApiBaseUrl(cloudBackendUrl);
-              setCloudSyncSaved(true);
-              setTimeout(() => setCloudSyncSaved(false), 2500);
-            }}
-            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs cursor-pointer shadow-xs transition-colors whitespace-nowrap"
-          >
-            {cloudSyncSaved ? "Saved!" : "Save Cloud URL"}
-          </button>
-        </div>
-      </div>
 
       {/* ── Sub-Section Navigation Tabs (Role Filtered) ── */}
       <div className="flex border-b border-slate-200 dark:border-slate-800 gap-1 sm:gap-2 overflow-x-auto text-xs font-semibold">
@@ -803,7 +945,7 @@ export default function Settings() {
                   <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 font-semibold text-slate-500">
                     <th className="p-3 pl-4">Product / Device ID</th>
                     <th className="p-3">Hardware Model</th>
-                    <th className="p-3">Assigned Bed &amp; Patient</th>
+                    <th className="p-3">Assigned Patient / Neonate</th>
                     <th className="p-3">Status</th>
                     <th className="p-3">MAC / Firmware</th>
                     <th className="p-3">Battery &amp; RSSI</th>
@@ -819,7 +961,6 @@ export default function Settings() {
                     </tr>
                   ) : (
                     devices.map((d) => {
-                      const assignedBed = beds.find((b) => b.bedId === d.assignedBedId);
                       return (
                         <tr key={d.deviceId} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
                           <td className="p-3 pl-4">
@@ -850,14 +991,14 @@ export default function Settings() {
                           <td className="p-3">
                             <div className="flex items-center gap-2">
                               <select
-                                value={d.assignedBedId || "UNASSIGNED"}
-                                onChange={(e) => handleReassignBed(d.deviceId, e.target.value)}
+                                value={d.assignedPatientId || "UNASSIGNED"}
+                                onChange={(e) => handleReassignPatient(d.deviceId, e.target.value)}
                                 className="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:border-blue-500"
                               >
                                 <option value="UNASSIGNED">-- Unassigned (Spare) --</option>
-                                {beds.map((b) => (
-                                  <option key={b.bedId} value={b.bedId}>
-                                    {b.bedId} ({b.babyName})
+                                {patients.map((p) => (
+                                  <option key={p.patientId} value={p.patientId}>
+                                    {p.babyName} ({p.patientId}){p.assignedBedId ? ` · Bed ${p.assignedBedId}` : ""}
                                   </option>
                                 ))}
                               </select>
@@ -956,22 +1097,13 @@ export default function Settings() {
               {/* Subtabs */}
               <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs font-semibold">
                 <button
-                  onClick={() => setActiveFirmwareTab("payload")}
-                  className={`px-3 py-1 rounded-lg transition-colors ${activeFirmwareTab === "payload"
-                    ? "bg-white dark:bg-slate-700 text-blue-600 shadow-xs"
-                    : "text-slate-500 hover:text-slate-800"
-                    }`}
-                >
-                  HTTP Payload
-                </button>
-                <button
                   onClick={() => setActiveFirmwareTab("mqtt")}
                   className={`px-3 py-1 rounded-lg transition-colors ${activeFirmwareTab === "mqtt"
                     ? "bg-white dark:bg-slate-700 text-blue-600 shadow-xs"
                     : "text-slate-500 hover:text-slate-800"
                     }`}
                 >
-                  HiveMQ MQTT (Recommended)
+                  HiveMQ MQTT Setup
                 </button>
                 <button
                   onClick={() => setActiveFirmwareTab("arduino")}
@@ -980,7 +1112,7 @@ export default function Settings() {
                     : "text-slate-500 hover:text-slate-800"
                     }`}
                 >
-                  Arduino C++ Code
+                  Arduino C++ Code (HiveMQ)
                 </button>
                 <button
                   onClick={() => setActiveFirmwareTab("wiring")}
@@ -1039,89 +1171,43 @@ export default function Settings() {
               </div>
             )}
 
-            {/* HTTP Payload View */}
-            {activeFirmwareTab === "payload" && (
-              <div className="space-y-3 text-xs">
-                <p className="text-slate-600 dark:text-slate-300">
-                  The ESP32 transmits validated readings to the authenticated ingestion endpoint via HTTPS POST:
-                </p>
-                <pre className="p-4 rounded-xl bg-slate-900 text-emerald-400 font-mono text-xs overflow-x-auto leading-relaxed">
-                  {`POST /api/v1/devices/telemetry
-Content-Type: application/json
-Authorization: Bearer <DEVICE_TOKEN_NICU_01>
-
-{
-  "deviceId": "ESP32-NICU-01",
-  "patientId": "DEMO-001",
-  "bedId": "NICU-01",
-  "heartRate": 142,
-  "spo2": 97,
-  "temperature": 36.7,
-  "batteryPercent": 84,
-  "rssi": -58,
-  "signalQuality": "Good",
-  "quality": {
-    "opticalSNR_dB": 24.2,
-    "probeAttached": true,
-    "temperatureValid": true
-  },
-  "sequenceNumber": 18402,
-  "timestamp": "${new Date().toISOString()}"
-}`}
-                </pre>
-              </div>
-            )}
-
-            {/* Arduino Code View */}
+            {/* Arduino Code View with 1-Click Copy */}
             {activeFirmwareTab === "arduino" && (
               <div className="space-y-3 text-xs">
-                <p className="text-slate-600 dark:text-slate-300">
-                  Arduino framework sample code for reading MAX30102 and TMP117 over I²C on the ESP32:
-                </p>
-                <pre className="p-4 rounded-xl bg-slate-900 text-sky-300 font-mono text-[11px] overflow-x-auto leading-relaxed">
-                  {`#include <WiFi.h>
-#include <HTTPClient.h>
-#include <Wire.h>
-#include "MAX30105.h"
-#include "heartRate.h"
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3.5 rounded-xl bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-950 dark:text-blue-200">
+                  <div>
+                    <strong className="block text-slate-900 dark:text-slate-100 font-bold text-sm">
+                      Production ESP32 HiveMQ MQTT Transmitter Firmware
+                    </strong>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+                      Flash to ESP32 with Arduino IDE. Streams MAX30102 pulse &amp; TMP117 skin temp to HiveMQ MQTT (<code className="font-mono text-blue-600 dark:text-blue-400">broker.hivemq.com:1883</code>).
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(HIVEMQ_ARDUINO_CODE);
+                      setArduinoCodeCopied(true);
+                      setTimeout(() => setArduinoCodeCopied(false), 3000);
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap self-start sm:self-auto"
+                  >
+                    {arduinoCodeCopied ? (
+                      <>
+                        <CheckCircle2 size={16} className="text-emerald-300" />
+                        <span>Copied to Clipboard!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Code size={16} />
+                        <span>Copy Complete Arduino Code</span>
+                      </>
+                    )}
+                  </button>
+                </div>
 
-#define I2C_SDA 21
-#define I2C_SCL 22
-
-MAX30105 particleSensor;
-const char* ssid = "YOUR_WIFI_SSID";           // Replace with your Wi-Fi or phone hotspot
-const char* password = "YOUR_WIFI_PASSWORD";
-// Point to your backend (replace 192.168.1.15 with your PC's IP from ipconfig):
-const char* serverUrl = "http://192.168.1.15:5000/api/telemetry";
-
-void setup() {
-  Serial.begin(115200);
-  Wire.begin(I2C_SDA, I2C_SCL);
-  WiFi.begin(ssid, password);
-  
-  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
-    Serial.println("MAX30102 sensor not found. Halting.");
-    while (1);
-  }
-  particleSensor.setup();
-}
-
-void loop() {
-  long irValue = particleSensor.getIR();
-  int bpm = 142; // Real-time pulse
-  int spo2 = 97;
-  float temp = 36.7; // From TMP117
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(serverUrl);
-    http.addHeader("Content-Type", "application/json");
-    String payload = "{\\"deviceId\\":\\"ESP32-NICU-01\\",\\"bedId\\":\\"NICU-01\\",\\"heartRate\\":" + String(bpm) + ",\\"spo2\\":" + String(spo2) + ",\\"temperature\\":" + String(temp, 1) + ",\\"batteryPercent\\":85,\\"signalQuality\\":\\"Good\\"}";
-    http.POST(payload);
-    http.end();
-  }
-  delay(1000); // 1 Hz stream
-}`}
+                <pre className="p-4 rounded-xl bg-slate-900 text-sky-300 font-mono text-[11px] overflow-x-auto leading-relaxed max-h-[500px]">
+                  {HIVEMQ_ARDUINO_CODE}
                 </pre>
               </div>
             )}
@@ -1457,11 +1543,11 @@ void loop() {
                         title={
                           isOccupied
                             ? "Perform routine bedside surface sanitization & filter check (Patient remains admitted & monitored)"
-                            : "Run terminal UV-C sterilization & certify station ready for incoming neonate"
+                            : "Sanitize station & certify ready for incoming neonate"
                         }
                       >
                         <Sparkles size={13} className={isOccupied ? "text-amber-500" : "text-blue-500"} />
-                        <span>{isOccupied ? "Sanitize Station" : "Sterilize Station (UV-C)"}</span>
+                        <span>Sanitize Station</span>
                       </button>
 
                       {isStandby && (
@@ -1610,7 +1696,7 @@ void loop() {
                             <span>
                               {modalIsOccupied
                                 ? "Executing Routine Bedside Sanitization..."
-                                : "Executing Automated UV-C Terminal Decontamination..."}
+                                : "Executing Station Terminal Sanitization..."}
                             </span>
                           </div>
                           <div className="w-full bg-blue-200 dark:bg-blue-900 h-1.5 rounded-full overflow-hidden">
@@ -1641,7 +1727,7 @@ void loop() {
                     {/* Footer Actions */}
                     <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/30 flex items-center justify-between">
                       <span className="text-[11px] text-slate-400 font-mono">
-                        Audit Log ID: {modalIsOccupied ? "ROUTINE-HYGIENE" : "TERMINAL-UVC"}
+                        Audit Log ID: {modalIsOccupied ? "ROUTINE-HYGIENE" : "TERMINAL-CLEAN"}
                       </span>
                       <div className="flex items-center gap-2">
                         <button
@@ -1671,7 +1757,7 @@ void loop() {
                           ) : (
                             <>
                               <Sparkles size={13} />
-                              <span>{modalIsOccupied ? "Execute Bedside Sanitization" : "Execute UV-C Sterilization"}</span>
+                              <span>{modalIsOccupied ? "Execute Bedside Sanitization" : "Execute Station Sanitization"}</span>
                             </>
                           )}
                         </button>

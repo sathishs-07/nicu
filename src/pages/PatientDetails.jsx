@@ -62,6 +62,7 @@ export default function PatientDetails() {
     deleteBed,
     devices,
     assignDeviceToBed,
+    assignDeviceToPatient,
     addDevice,
     currentUser,
   } = useApp();
@@ -873,17 +874,21 @@ export default function PatientDetails() {
                   }
 
                   if (finalId === "UNASSIGN") {
-                    if (bed.deviceId) await assignDeviceToBed(bed.deviceId, "");
+                    const devToClear = patient?.deviceId || bed?.deviceId;
+                    if (devToClear) await assignDeviceToPatient(devToClear, "");
                   } else {
                     if (selectedDevId === "NEW") {
                       await addDevice({
                         deviceId: finalId,
-                        deviceLabel: `ESP32 (${bed.bedId})`,
+                        deviceLabel: `ESP32 (${patient?.babyName || "Patient"})`,
                         model: "ESP32-S3 DevKit",
-                        assignedBedId: bed.bedId,
+                        assignedPatientId: patient?.patientId || bed?.patientId || null,
                       });
+                      if (patient?.patientId || bed?.patientId) {
+                        await assignDeviceToPatient(finalId, patient?.patientId || bed?.patientId);
+                      }
                     } else {
-                      await assignDeviceToBed(finalId, bed.bedId);
+                      await assignDeviceToPatient(finalId, patient?.patientId || bed?.patientId);
                     }
                   }
                   setShowDeviceModal(false);

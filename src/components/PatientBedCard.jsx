@@ -100,32 +100,15 @@ export default function PatientBedCard({ bed, onAcknowledgeAlert, onAssignDevice
           </div>
         </div>
 
-        {/* Footer Admit & Turnover Actions */}
-        <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center gap-2">
+        {/* Footer Admit Action */}
+        <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center">
           <a
             href={`/patients?admitBed=${bed.bedId}`}
-            className="flex-1 py-2.5 px-3 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            className="w-full py-2.5 px-3 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <Plus size={15} />
             <span>Admit Neonate</span>
           </a>
-          <button
-            type="button"
-            onClick={async () => {
-              setIsSanitizing(true);
-              try {
-                await sanitizeBed(bed.bedId, { notes: "Fast UV-C Bed Card Verification" });
-              } finally {
-                setTimeout(() => setIsSanitizing(false), 900);
-              }
-            }}
-            disabled={isSanitizing}
-            className="py-2.5 px-3 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 hover:bg-blue-50 dark:hover:bg-blue-950/40 text-blue-700 dark:text-blue-300 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            title="Re-run terminal disinfection & verify station sterility"
-          >
-            <Sparkles size={14} className={isSanitizing ? "animate-spin text-blue-600" : "text-blue-500"} />
-            <span>{isSanitizing ? "Sterilizing..." : "UV-C Cycle"}</span>
-          </button>
         </div>
       </div>
     );
